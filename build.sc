@@ -8,3 +8,14 @@ object textedit extends ScalaJSModule {
     ivy"org.scala-js::scalajs-dom::1.1.0"
   )
 }
+
+def minifier = T {
+  os.makeDir.all(T.dest)
+  os.proc(
+    "./node_modules/.bin/esbuild",
+    "--minify",
+    textedit.fastOpt().path,
+    s"--outfile=${T.dest}/out.min.js"
+  ).call(cwd = os.pwd)
+  PathRef(T.dest)
+}

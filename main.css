@@ -1,0 +1,28 @@
+body {
+  user-select: none;
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  justify-content: start;
+  align-items: center;
+}
+
+.spaced {
+  font-size: 50px;
+  letter-spacing: 0.6em;
+}
+
+.pix-layer {
+  position: absolute;
+  top: 0px;
+  left:0px;
+  pointer-events: none;
+}
+
+.vec-layer {
+  position: absolute;
+  top: 0px;
+  left:0px;
+}
