@@ -201,17 +201,52 @@ object Main {
     implicit val doc = document
     implicit val svgctx = new SVGContext()
     document.body.classList.add("center")
+    // TODO: text layer API, something better for specifying classes.
     val p = txt("MONET", "spaced")
 
     var w = dom.window.innerWidth
     var h = dom.window.innerHeight
 
+    val circPoints = Seq((250, 250, 0.1), (750, 750, 0.1))
+
+    // TODO: port the reactive layer from mimic so we can just tweak the values directly.
+    // TODO: we want something like the VectorLayer API here, and not to be passing w,h in directly.
     val pixlayer = PixelLayer({
       case (ctx, w, h) => {
-        for (t <- 0 to 100) {
+        // Calculate the radius of the 10% svg element explicitly according to the spec:
+        // https://www.w3.org/TR/SVG/coords.html
+        val cx = 250.0; val cy = 250.0; val px = 0.1;
+        val r = px * (math.sqrt(w * w + h * h) / math.sqrt(2.0));
+        println(r);
+
+        // Find the tangent from the border point to the circle.
+        def targetPoint(sx: Double, sy: Double) = {
+          val dx = sx - cx; val dy = sy - cy;
+          val (dxr, dyr) = (-dy, dx)
+          val d = math.sqrt(dx * dx + dy * dy)
+          if (d >= r) {
+            val rho = r / d
+            val ad = rho * rho
+            val bd = rho * math.sqrt(1 - rho * rho)
+            val t1x = cx + ad * dx + bd * dxr
+            val t1y = cy + ad * dy + bd * dyr
+            val t2x = cx + ad * dx - bd * dxr
+            val t2y = cy + ad * dy - bd * dyr
+            (t1x, t1y)
+          } else (sx, sy)
+        }
+
+        def radialLine(sx: Double, sy: Double) = {
+          ctx.moveTo(sx, sy)
+          val (tx, ty) = targetPoint(sx, sy)
+          ctx.lineTo(tx, ty)
+        }
+        for (t <- 0 until 100) {
           val dt = t.toDouble / 100.0
-          ctx.moveTo(dt * w, 0);
-          ctx.lineTo(w / 2, h / 2);
+          radialLine(dt * w, 0)
+          radialLine(w, dt * h)
+          radialLine((1.0 - dt) * w, h)
+          radialLine(0, (1.0 - dt) * h)
         }
         ctx.lineWidth = 0.5;
         ctx.strokeStyle = "#aaa";
@@ -219,20 +254,23 @@ object Main {
       }
     })
 
+    // TODO: figure out how extracting the objects for a cross-layer API might work --
+    //       i.e. collect the created objects from the execution context.
     val svg = VectorLayer {
+      // TODO: get a better color API. strings can be colors, but so can... you know, more descriptive representations.
       val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
       def mkcirc(x: Int, y: Int) = {
         var circPt = Pt(x, y)
-        var circ = Circle(circPt, "10%", g).draggable
+        // TODO: parametric percentages are a function of width.
+        Circle(circPt, "10%", g).draggable
       }
       mkcirc(250, 250)
       mkcirc(750, 750)
     }
 
-    val layers = Seq(
-      svg,
-      pixlayer
-    )
+    val layers = Seq(svg, pixlayer)
+
+    // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
     // When the canvas is resized we need to tweak.
     def setLayerSize(layer: Layer): Layer = {
