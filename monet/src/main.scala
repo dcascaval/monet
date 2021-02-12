@@ -1,5 +1,7 @@
 package monet
 
+import typings.three
+
 import scala.scalajs.js
 import org.scalajs.dom
 import org.scalajs.dom.document
@@ -12,7 +14,6 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
-// import scalajs.js.j
 
 case class Pt(val x: Double, val y: Double) {
   def +(other: Pt) = {
@@ -304,6 +305,9 @@ object Main {
     })
 
   }
+
+  // import t
+  // import three
 
   // def threejs() = {
   //   import monet.three._

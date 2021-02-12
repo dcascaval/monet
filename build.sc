@@ -5,10 +5,14 @@ object monet extends ScalaJSModule {
   def scalaVersion = "2.13.4"
   def scalaJSVersion = "1.4.0"
   def ivyDeps = Agg(
-    ivy"org.scala-js::scalajs-dom::1.1.0",
-    // ivy"org.denigma::threejs-facade::0.1.8"
+    ivy"org.scala-js::scalajs-dom::1.1.0"
   )
+
   def scalacOptions = Seq("-deprecation")
+  def unmanagedClasspath = T {
+    if (!os.exists(millSourcePath / "lib")) Agg()
+    else Agg.from(os.list(millSourcePath / "lib").map(PathRef(_)))
+  }
 }
 
 def WIN = System.getProperty("os.name") contains ("Win")
