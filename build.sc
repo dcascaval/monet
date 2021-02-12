@@ -7,6 +7,7 @@ object textedit extends ScalaJSModule {
   def ivyDeps = Agg(
     ivy"org.scala-js::scalajs-dom::1.1.0"
   )
+  def scalacOptions = Seq("-deprecation")
 }
 
 def minifier = T {
