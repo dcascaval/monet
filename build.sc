@@ -1,7 +1,7 @@
 import mill._, scalalib._
 import mill.scalajslib._
 
-object textedit extends ScalaJSModule {
+object monet extends ScalaJSModule {
   def scalaVersion = "2.13.4"
   def scalaJSVersion = "1.4.0"
   def ivyDeps = Agg(
@@ -10,12 +10,14 @@ object textedit extends ScalaJSModule {
   def scalacOptions = Seq("-deprecation")
 }
 
+def WIN = System.getProperty("os.name") contains ("Win")
+
 def minifier = T {
   os.makeDir.all(T.dest)
   os.proc(
-    "./node_modules/.bin/esbuild",
+    os.pwd / 'node_modules / ".bin" / "esbuild" + (if (WIN) ".cmd" else ""),
     "--minify",
-    textedit.fastOpt().path,
+    monet.fastOpt().path,
     s"--outfile=${T.dest}/out.min.js"
   ).call(cwd = os.pwd)
   PathRef(T.dest)

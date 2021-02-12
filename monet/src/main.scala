@@ -1,4 +1,4 @@
-package textedit
+package monet
 
 import scala.scalajs.js
 import org.scalajs.dom
