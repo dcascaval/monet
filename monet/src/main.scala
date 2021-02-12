@@ -12,6 +12,7 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
+// import scalajs.js.j
 
 case class Pt(val x: Double, val y: Double) {
   def +(other: Pt) = {
@@ -196,6 +197,7 @@ object Main {
     e
   }
 
+  // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
   def render() = {
 
     implicit val doc = document
@@ -211,6 +213,8 @@ object Main {
 
     // TODO: port the reactive layer from mimic so we can just tweak the values directly.
     // TODO: we want something like the VectorLayer API here, and not to be passing w,h in directly.
+    // TODO: add an API for clipping that gets compiled to clip-path properties on the canvas object
+    // TODO: add an API for opacity
     val pixlayer = PixelLayer({
       case (ctx, w, h) => {
         // Calculate the radius of the 10% svg element explicitly according to the spec:
@@ -220,6 +224,7 @@ object Main {
         println(r);
 
         // Find the tangent from the border point to the circle.
+        // TODO: add a web-assembly based 2d geometry library
         def targetPoint(sx: Double, sy: Double) = {
           val dx = sx - cx; val dy = sy - cy;
           val (dxr, dyr) = (-dy, dx)
@@ -268,6 +273,7 @@ object Main {
       mkcirc(750, 750)
     }
 
+    // TODO: add three.js based 3d layers.
     val layers = Seq(svg, pixlayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
@@ -298,4 +304,108 @@ object Main {
     })
 
   }
+
+  // def threejs() = {
+  //   import monet.three._
+
+  //   val window = dom.window;
+  //   // import * as THREE from '../build/three.module.js';
+  //   // import Stats from './jsm/libs/stats.module.js';
+
+  //   // let camera, scene, renderer, stats, group;
+
+  //   var mouseX = 0.0; var mouseY = 0.0;
+  //   var windowHalfX = window.innerWidth / 2;
+  //   var windowHalfY = window.innerHeight / 2;
+  //   var render: () => Unit = () => ();
+
+  //   def init() = {
+
+  //     val camera = new THREE.PerspectiveCamera(
+  //       60,
+  //       window.innerWidth / window.innerHeight,
+  //       1,
+  //       10000
+  //     );
+  //     camera.position.z = 500;
+
+  //     val scene = new THREE.Scene();
+  //     val scene.background = new THREE.Color(0xffffff);
+  //     val scene.fog = new THREE.Fog(0xffffff, 1, 10000);
+
+  //     val geometry = new THREE.BoxGeometry(100, 100, 100);
+  //     val material = new THREE.MeshNormalMaterial();
+
+  //     val group = new THREE.Group();
+
+  //     for (i <- 0 until 1000) {
+  //       val mesh = new THREE.Mesh(geometry, material);
+  //       mesh.position.x = math.random() * 2000 - 1000;
+  //       mesh.position.y = math.random() * 2000 - 1000;
+  //       mesh.position.z = math.random() * 2000 - 1000;
+  //       mesh.rotation.x = math.random() * 2 * math.Pi;
+  //       mesh.rotation.y = math.random() * 2 * math.Pi;
+
+  //       mesh.matrixAutoUpdate = false;
+  //       mesh.updateMatrix();
+  //       group.add(mesh);
+  //     }
+
+  //     scene.add(group);
+  //     //
+
+  //     val renderer = new THREE.WebGLRenderer(
+  //       WebGLRendererParameters { var antialias = true }
+  //     );
+  //     renderer.setPixelRatio(window.devicePixelRatio);
+  //     renderer.setSize(window.innerWidth, window.innerHeight);
+  //     document.body.appendChild(renderer.domElement);
+
+  //     def onWindowResize(e: Event) = {
+
+  //       windowHalfX = window.innerWidth / 2;
+  //       windowHalfY = window.innerHeight / 2;
+
+  //       camera.aspect = window.innerWidth / window.innerHeight;
+  //       camera.updateProjectionMatrix();
+
+  //       renderer.setSize(window.innerWidth, window.innerHeight);
+  //     }
+
+  //     def onDocumentMouseMove(event: MouseEvent) = {
+  //       mouseX = (event.clientX - windowHalfX) * 10;
+  //       mouseY = (event.clientY - windowHalfY) * 10;
+  //     }
+
+  //     document.addEventListener("mousemove", onDocumentMouseMove)
+  //     dom.window.addEventListener("resize", onWindowResize)
+
+  //     render = () => {
+
+  //       val time = System.nanoTime() * 0.000000001;
+
+  //       val rx = Math.sin(time * 0.7) * 0.5;
+  //       val ry = Math.sin(time * 0.3) * 0.5;
+  //       val rz = Math.sin(time * 0.2) * 0.5;
+
+  //       camera.position.x += (mouseX - camera.position.x) * 0.05;
+  //       camera.position.y += (-mouseY - camera.position.y) * 0.05;
+
+  //       camera.lookAt(scene.position);
+
+  //       group.rotation.x = rx;
+  //       group.rotation.y = ry;
+  //       group.rotation.z = rz;
+  //       renderer.render(scene, camera);
+  //     }
+  //   }
+
+  //   val animate: scala.scalajs.js.Function1[Double, _] = (_: Double) => {
+  //     window.requestAnimationFrame(animate);
+  //     render();
+  //   }
+
+  //   init();
+  //   animate(0.0);
+  // }
 }

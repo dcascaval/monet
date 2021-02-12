@@ -5,7 +5,8 @@ object monet extends ScalaJSModule {
   def scalaVersion = "2.13.4"
   def scalaJSVersion = "1.4.0"
   def ivyDeps = Agg(
-    ivy"org.scala-js::scalajs-dom::1.1.0"
+    ivy"org.scala-js::scalajs-dom::1.1.0",
+    // ivy"org.denigma::threejs-facade::0.1.8"
   )
   def scalacOptions = Seq("-deprecation")
 }
