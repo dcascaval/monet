@@ -332,7 +332,7 @@ object Main {
 
       val scene = new THREE.Scene();
       scene.background = new THREE.Color(0xffffff);
-      scene.fog = new THREE.Fog(0xffffff, 1, 10000);
+      // scene.fog = new THREE.Fog(0xffffff, 1, 10000);
 
       val geometry = boxGeometry(100, 100, 100);
       val material = new THREE.MeshNormalMaterial();
@@ -403,7 +403,7 @@ object Main {
 
     var animate: scala.scalajs.js.Function1[Double, _] = null;
     animate = (_: Double) => {
-      window.requestAnimationFrame(animate);
+      // window.requestAnimationFrame(animate);
       render();
     }
 
