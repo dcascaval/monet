@@ -1,7 +1,5 @@
 package monet
 
-import typings.three
-
 import scala.scalajs.js
 import org.scalajs.dom
 import org.scalajs.dom.document
@@ -14,6 +12,8 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
+import monet.three.THREE.WebGLRenderer
+import monet.three.THREE.WebGLRendererParameters
 
 case class Pt(val x: Double, val y: Double) {
   def +(other: Pt) = {
@@ -200,6 +200,7 @@ object Main {
 
   // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
   def render() = {
+    threejs()
 
     implicit val doc = document
     implicit val svgctx = new SVGContext()
@@ -306,110 +307,107 @@ object Main {
 
   }
 
-  // import t
-  // import three
+  def threejs() = {
+    import monet.three._
 
-  // def threejs() = {
-  //   import monet.three._
+    def boxGeometry(width: Double, height: Double, depth: Double) = {
+      new THREE.BoxGeometry(width, height, depth)
+    }
 
-  //   val window = dom.window;
-  //   // import * as THREE from '../build/three.module.js';
-  //   // import Stats from './jsm/libs/stats.module.js';
+    val window = dom.window;
+    var mouseX = 0.0; var mouseY = 0.0;
+    var windowHalfX = window.innerWidth / 2;
+    var windowHalfY = window.innerHeight / 2;
+    var render: () => Unit = () => ();
 
-  //   // let camera, scene, renderer, stats, group;
+    def init() = {
 
-  //   var mouseX = 0.0; var mouseY = 0.0;
-  //   var windowHalfX = window.innerWidth / 2;
-  //   var windowHalfY = window.innerHeight / 2;
-  //   var render: () => Unit = () => ();
+      val camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        1,
+        10000
+      );
+      camera.position.z = 2000;
 
-  //   def init() = {
+      val scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+      scene.fog = new THREE.Fog(0xffffff, 1, 10000);
 
-  //     val camera = new THREE.PerspectiveCamera(
-  //       60,
-  //       window.innerWidth / window.innerHeight,
-  //       1,
-  //       10000
-  //     );
-  //     camera.position.z = 500;
+      val geometry = boxGeometry(100, 100, 100);
+      val material = new THREE.MeshNormalMaterial();
 
-  //     val scene = new THREE.Scene();
-  //     val scene.background = new THREE.Color(0xffffff);
-  //     val scene.fog = new THREE.Fog(0xffffff, 1, 10000);
+      val group = new THREE.Group();
 
-  //     val geometry = new THREE.BoxGeometry(100, 100, 100);
-  //     val material = new THREE.MeshNormalMaterial();
+      for (i <- 0 until 100) {
+        val mesh = new THREE.Mesh(geometry, material);
+        mesh.position.x = math.random() * 2000 - 1000;
+        mesh.position.y = math.random() * 2000 - 1000;
+        mesh.position.z = math.random() * 2000 - 1000;
+        mesh.rotation.x = math.random() * 2 * math.Pi;
+        mesh.rotation.y = math.random() * 2 * math.Pi;
 
-  //     val group = new THREE.Group();
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        group.add(mesh);
+      }
 
-  //     for (i <- 0 until 1000) {
-  //       val mesh = new THREE.Mesh(geometry, material);
-  //       mesh.position.x = math.random() * 2000 - 1000;
-  //       mesh.position.y = math.random() * 2000 - 1000;
-  //       mesh.position.z = math.random() * 2000 - 1000;
-  //       mesh.rotation.x = math.random() * 2 * math.Pi;
-  //       mesh.rotation.y = math.random() * 2 * math.Pi;
+      scene.add(group);
 
-  //       mesh.matrixAutoUpdate = false;
-  //       mesh.updateMatrix();
-  //       group.add(mesh);
-  //     }
+      val params = new THREE.WebGLRendererParameters {}
+      params.antialias = true
+      val renderer = new THREE.WebGLRenderer(params);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.domElement.classList.add("three-layer");
+      document.body.appendChild(renderer.domElement);
 
-  //     scene.add(group);
-  //     //
+      def onWindowResize(e: Event) = {
 
-  //     val renderer = new THREE.WebGLRenderer(
-  //       WebGLRendererParameters { var antialias = true }
-  //     );
-  //     renderer.setPixelRatio(window.devicePixelRatio);
-  //     renderer.setSize(window.innerWidth, window.innerHeight);
-  //     document.body.appendChild(renderer.domElement);
+        windowHalfX = window.innerWidth / 2;
+        windowHalfY = window.innerHeight / 2;
 
-  //     def onWindowResize(e: Event) = {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
 
-  //       windowHalfX = window.innerWidth / 2;
-  //       windowHalfY = window.innerHeight / 2;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
 
-  //       camera.aspect = window.innerWidth / window.innerHeight;
-  //       camera.updateProjectionMatrix();
+      def onDocumentMouseMove(event: MouseEvent) = {
+        mouseX = (event.clientX - windowHalfX) * 10;
+        mouseY = (event.clientY - windowHalfY) * 10;
+      }
 
-  //       renderer.setSize(window.innerWidth, window.innerHeight);
-  //     }
+      // document.addEventListener("mousemove", onDocumentMouseMove)
+      dom.window.addEventListener("resize", onWindowResize)
 
-  //     def onDocumentMouseMove(event: MouseEvent) = {
-  //       mouseX = (event.clientX - windowHalfX) * 10;
-  //       mouseY = (event.clientY - windowHalfY) * 10;
-  //     }
+      render = () => {
 
-  //     document.addEventListener("mousemove", onDocumentMouseMove)
-  //     dom.window.addEventListener("resize", onWindowResize)
+        val time = System.nanoTime() * 0.0000000001;
 
-  //     render = () => {
+        val rx = Math.sin(time * 0.7) * 0.5;
+        val ry = Math.sin(time * 0.3) * 0.5;
+        val rz = Math.sin(time * 0.2) * 0.5;
 
-  //       val time = System.nanoTime() * 0.000000001;
+        camera.position.x += (mouseX - camera.position.x) * 0.05;
+        camera.position.y += (-mouseY - camera.position.y) * 0.05;
 
-  //       val rx = Math.sin(time * 0.7) * 0.5;
-  //       val ry = Math.sin(time * 0.3) * 0.5;
-  //       val rz = Math.sin(time * 0.2) * 0.5;
+        camera.lookAt(scene.position);
 
-  //       camera.position.x += (mouseX - camera.position.x) * 0.05;
-  //       camera.position.y += (-mouseY - camera.position.y) * 0.05;
+        group.rotation.x = rx;
+        group.rotation.y = ry;
+        group.rotation.z = rz;
+        renderer.render(scene, camera);
+      }
+    }
 
-  //       camera.lookAt(scene.position);
+    var animate: scala.scalajs.js.Function1[Double, _] = null;
+    animate = (_: Double) => {
+      window.requestAnimationFrame(animate);
+      render();
+    }
 
-  //       group.rotation.x = rx;
-  //       group.rotation.y = ry;
-  //       group.rotation.z = rz;
-  //       renderer.render(scene, camera);
-  //     }
-  //   }
-
-  //   val animate: scala.scalajs.js.Function1[Double, _] = (_: Double) => {
-  //     window.requestAnimationFrame(animate);
-  //     render();
-  //   }
-
-  //   init();
-  //   animate(0.0);
-  // }
+    init();
+    animate(0.0);
+  }
 }
