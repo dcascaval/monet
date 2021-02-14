@@ -1,18 +1,22 @@
 import mill._, scalalib._
 import mill.scalajslib._
 
+object typings extends ScalaJSModule {
+  def scalaVersion = "2.13.4"
+  def scalaJSVersion = "1.4.0"
+  def ivyDeps = Agg(
+    ivy"org.scala-js::scalajs-dom::1.1.0"
+  )
+}
+
 object monet extends ScalaJSModule {
   def scalaVersion = "2.13.4"
   def scalaJSVersion = "1.4.0"
   def ivyDeps = Agg(
     ivy"org.scala-js::scalajs-dom::1.1.0"
   )
-
+  def moduleDeps = Seq(typings)
   def scalacOptions = Seq("-deprecation")
-  def unmanagedClasspath = T {
-    if (!os.exists(millSourcePath / "lib")) Agg()
-    else Agg.from(os.list(millSourcePath / "lib").map(PathRef(_)))
-  }
 }
 
 def WIN = System.getProperty("os.name") contains ("Win")

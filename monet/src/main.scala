@@ -12,8 +12,6 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
-import monet.three.THREE.WebGLRenderer
-import monet.three.THREE.WebGLRendererParameters
 
 case class Pt(val x: Double, val y: Double) {
   def +(other: Pt) = {
@@ -308,10 +306,11 @@ object Main {
   }
 
   def threejs() = {
-    import monet.three._
+    import typings.three._
+    import typings.three.THREE._
 
     def boxGeometry(width: Double, height: Double, depth: Double) = {
-      new THREE.BoxGeometry(width, height, depth)
+      new BoxGeometry(width, height, depth)
     }
 
     val window = dom.window;
@@ -322,7 +321,7 @@ object Main {
 
     def init() = {
 
-      val camera = new THREE.PerspectiveCamera(
+      val camera = new PerspectiveCamera(
         60,
         window.innerWidth / window.innerHeight,
         1,
@@ -330,17 +329,17 @@ object Main {
       );
       camera.position.z = 2000;
 
-      val scene = new THREE.Scene();
-      scene.background = new THREE.Color(0xffffff);
-      // scene.fog = new THREE.Fog(0xffffff, 1, 10000);
+      val scene = new Scene();
+      scene.background = new Color(0xffffff);
+      scene.fog = new Fog(0xffffff, 1, 10000);
 
       val geometry = boxGeometry(100, 100, 100);
-      val material = new THREE.MeshNormalMaterial();
+      val material = new MeshNormalMaterial();
 
-      val group = new THREE.Group();
+      val group = new Group();
 
       for (i <- 0 until 100) {
-        val mesh = new THREE.Mesh(geometry, material);
+        val mesh = new Mesh(geometry, material);
         mesh.position.x = math.random() * 2000 - 1000;
         mesh.position.y = math.random() * 2000 - 1000;
         mesh.position.z = math.random() * 2000 - 1000;
@@ -354,9 +353,8 @@ object Main {
 
       scene.add(group);
 
-      val params = new THREE.WebGLRendererParameters {}
-      params.antialias = true
-      val renderer = new THREE.WebGLRenderer(params);
+      val params = new WebGLRendererParameters(antialias = true)
+      val renderer = new WebGLRenderer(params);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.domElement.classList.add("three-layer");
@@ -403,7 +401,7 @@ object Main {
 
     var animate: scala.scalajs.js.Function1[Double, _] = null;
     animate = (_: Double) => {
-      // window.requestAnimationFrame(animate);
+      window.requestAnimationFrame(animate);
       render();
     }
 
