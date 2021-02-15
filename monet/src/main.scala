@@ -186,7 +186,10 @@ sealed trait Draggable[T] {
 object Main {
 
   def main(args: Array[String]): Unit = {
-    document.addEventListener("DOMContentLoaded", (e: Event) => render())
+    document.addEventListener(
+      "DOMContentLoaded",
+      (e: Event) => { ThreeExamplePoints.raytest(); render() }
+    )
   }
 
   def txt(text: String, classes: String*): Element = {
@@ -198,8 +201,7 @@ object Main {
 
   // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
   def render() = {
-    threejs()
-
+    // threejs()
     implicit val doc = document
     implicit val svgctx = new SVGContext()
     document.body.classList.add("center")
@@ -309,10 +311,6 @@ object Main {
     import typings.three._
     import typings.three.THREE._
 
-    def boxGeometry(width: Double, height: Double, depth: Double) = {
-      new BoxGeometry(width, height, depth)
-    }
-
     val window = dom.window;
     var mouseX = 0.0; var mouseY = 0.0;
     var windowHalfX = window.innerWidth / 2;
@@ -333,7 +331,7 @@ object Main {
       scene.background = new Color(0xffffff);
       scene.fog = new Fog(0xffffff, 1, 10000);
 
-      val geometry = boxGeometry(100, 100, 100);
+      val geometry = new BoxGeometry(100, 100, 100);
       val material = new MeshNormalMaterial();
 
       val group = new Group();
