@@ -72,12 +72,9 @@ object PointsMaterialOptions extends PointsMaterialOptions
 class PointsMaterialOptions extends PointsMaterialSetters[PointsMaterialOptions]
 
 trait PointsMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def color(value: THREE.Color | String | Double) =
-    option("color", value.asInstanceOf[js.Any])
-  def map(value: THREE.Texture | Null) =
-    option("map", value.asInstanceOf[js.Any])
-  def alphaMap(value: THREE.Texture | Null) =
-    option("alphaMap", value.asInstanceOf[js.Any])
+  def color(value: THREE.Color | String | Double) = option("color", value.asInstanceOf[js.Any])
+  def map(value: THREE.Texture | Null) = option("map", value.asInstanceOf[js.Any])
+  def alphaMap(value: THREE.Texture | Null) = option("alphaMap", value.asInstanceOf[js.Any])
   def size(value: Double) = option("size", value)
   def sizeAttenuation(value: Boolean) = option("sizeAttenuation", value)
   def morphTargets(value: Boolean) = option("morphTargets", value)
@@ -86,24 +83,17 @@ trait PointsMaterialSetters[A] extends MaterialParameterSetters[A] {
 @js.native
 trait MeshBasicMaterialParameters extends js.Object
 object MeshBasicMaterialOptions extends MeshBasicMaterialOptions
-class MeshBasicMaterialOptions
-    extends MeshBasicMaterialSetters[MeshBasicMaterialOptions]
+class MeshBasicMaterialOptions extends MeshBasicMaterialSetters[MeshBasicMaterialOptions]
 
 trait MeshBasicMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def color(value: THREE.Color | String | Double) =
-    option("color", value.asInstanceOf[js.Any])
+  def color(value: THREE.Color | String | Double) = option("color", value.asInstanceOf[js.Any])
 }
 
 object ParameterConversions {
-  implicit def mats(opt: MaterialOptions): MaterialParameters =
-    opt.current.asInstanceOf[MaterialParameters]
-  implicit def points(
-      opt: PointsMaterialOptions
-  ): PointsMaterialParameters =
+  implicit def mats(opt: MaterialOptions): MaterialParameters = opt.current.asInstanceOf[MaterialParameters]
+  implicit def points(opt: PointsMaterialOptions): PointsMaterialParameters =
     opt.current.asInstanceOf[PointsMaterialParameters]
-  implicit def meshBasic(
-      opt: MeshBasicMaterialOptions
-  ): MeshBasicMaterialParameters =
+  implicit def meshBasic(opt: MeshBasicMaterialOptions): MeshBasicMaterialParameters =
     opt.current.asInstanceOf[MeshBasicMaterialParameters]
 }
 
@@ -143,8 +133,7 @@ object THREE extends js.Object {
   }
 
   @js.native
-  class Vector3(var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0)
-      extends js.Object {
+  class Vector3(var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) extends js.Object {
     def set(x: Double = 0.0, y: Double = 0.0, z: Double = 0.0): Unit = js.native
     def copy(v: Vector3): Unit = js.native
     def multiplyScalar(s: Double): Vector3 = js.native
@@ -179,8 +168,7 @@ object THREE extends js.Object {
   }
 
   @js.native
-  class Fog(c: Color | Double | String, near: Double = 1.0, far: Double = 2000)
-      extends js.Object {}
+  class Fog(c: Color | Double | String, near: Double = 1.0, far: Double = 2000) extends js.Object {}
 
   @js.native
   class Group extends Object3D {}
@@ -219,8 +207,7 @@ object THREE extends js.Object {
 
   // GEOMETRIES
   @js.native
-  class BoxGeometry(width: Double, height: Double, depth: Double)
-      extends BufferGeometry {}
+  class BoxGeometry(width: Double, height: Double, depth: Double) extends BufferGeometry {}
 
   @js.native
   class CircleGeometry extends BufferGeometry {}
@@ -305,8 +292,7 @@ object THREE extends js.Object {
   class Texture extends js.Object {}
 
   @js.native
-  class Mesh(geometry: BufferGeometry, material: Material | js.Array[Material])
-      extends Object3D {}
+  class Mesh(geometry: BufferGeometry, material: Material | js.Array[Material]) extends Object3D {}
 
   @js.native
   trait Renderer extends js.Object {
@@ -320,8 +306,7 @@ object THREE extends js.Object {
   }
 
   @js.native
-  class WebGLRenderer(params: js.UndefOr[WebGLRendererParameters])
-      extends Renderer {
+  class WebGLRenderer(params: js.UndefOr[WebGLRendererParameters]) extends Renderer {
     def setPixelRatio(value: Double): Unit = js.native
   }
 
@@ -358,7 +343,25 @@ object THREE extends js.Object {
 
   @js.native
   trait Intersection extends js.Object {
+    val distance: Double = js.native;
     val point: Vector3 = js.native
+    val `object`: Object3D = js.native
+    val distanceToRay: js.UndefOr[Double] = js.native;
+
+    val index: js.UndefOr[Int] = js.native
+    val face: js.UndefOr[Face | Null] = js.native
+    val faceIndex: js.UndefOr[Int] = js.native
+    val uv: js.UndefOr[Vector2] = js.native
+    val instanceId: js.UndefOr[Int] = js.native
+  }
+
+  @js.native
+  trait Face extends js.Object {
+    val a: Int = js.native
+    val b: Int = js.native
+    val c: Int = js.native
+    val normal: Vector3 = js.native
+    val materialIndex: Int = js.native
   }
 
   @js.native
