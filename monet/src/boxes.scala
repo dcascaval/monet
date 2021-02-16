@@ -102,14 +102,15 @@ object ThreeBlend {
 
       // COMPUTE POSITIONS (parametric surface)
       for (i <- 0 until vDivs) {
-        val tz = cubic(i.toDouble / (vDivs - 1.0))
-        // val tz = (i.toDouble / (vDivs - 1.0))
+        var t = i.toDouble / (vDivs - 1.0)
+        var tz = cubic(t)
         val itz = 1.0 - tz
         val idx = disc * i;
         for (j <- 0 until disc) {
           val tx = j.toDouble / (disc - 1.0)
           val pt = rect.eval(tx) * (tz) + circ.eval(tx) * (itz);
-          setPosition(idx + j, pt)
+          val nZ = t * rect.base.z + (1.0 - t) * circ.center.z
+          setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
           if (i < vDivs - 1) {
             val in = disc * (i + 1)
             val jn = (j + 1) % disc
@@ -173,8 +174,8 @@ object ThreeBlend {
 
     val geo = makeGeometry()
     val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1 })
-    val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true; wireframeLinewidth = 1.0 })
-    // val mat2 = new MeshNormalMaterial(MeshNormalMaterialOptions.side(DoubleSide))
+    // val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true })
+    val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { side = DoubleSide })
     val res1 = new Points(geo, mat1)
     val res2 = new Mesh(geo, mat2)
     scene.add(res1, res2)
