@@ -129,6 +129,7 @@ object ThreeExamplePoints {
     document.body.appendChild(container)
 
     val scene = new Scene();
+    scene.background = new Color(0xffffff);
     val clock = new Clock();
 
     val camera = new PerspectiveCamera(

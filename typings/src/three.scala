@@ -9,6 +9,8 @@ import org.scalajs.dom.raw.{HTMLCanvasElement, WebGLRenderingContext}
 import scalajs.js.typedarray._
 import javax.sound.sampled.Line
 import java.lang.reflect.Parameter
+import typings.three.THREE.Camera
+import org.scalajs.dom.raw.HTMLElement
 
 @js.native
 @JSGlobal
@@ -38,6 +40,7 @@ class MaterialOptions extends MaterialParameterSetters[MaterialOptions] {}
 
 trait MaterialParameterSetters[A] extends ParameterBuilder[A] {
   def vertexColors(b: Boolean) = option("vertexColors", b)
+  def side(side: THREE.Side) = option("side", side)
 }
 
 // Obscenely unsafe, but useful for presenting a typesafe interface
@@ -89,12 +92,33 @@ trait MeshBasicMaterialSetters[A] extends MaterialParameterSetters[A] {
   def color(value: THREE.Color | String | Double) = option("color", value.asInstanceOf[js.Any])
 }
 
+@js.native
+trait MeshDepthMaterialParameters extends js.Object
+object MeshDepthMaterialOptions extends MeshDepthMaterialOptions
+class MeshDepthMaterialOptions extends MeshDepthMaterialSetters[MeshDepthMaterialOptions]
+
+trait MeshDepthMaterialSetters[A] extends MaterialParameterSetters[A] {
+  def wireframe(value: Boolean) = option("wireframe", value)
+  def wireframeLinewidth(value: Double) = option("wireframeLinewidth", value)
+}
+
+@js.native
+trait MeshNormalMaterialParameters extends js.Object
+object MeshNormalMaterialOptions extends MeshNormalMaterialOptions
+class MeshNormalMaterialOptions extends MeshNormalMaterialSetters[MeshNormalMaterialOptions]
+
+trait MeshNormalMaterialSetters[A] extends MaterialParameterSetters[A] {}
+
 object ParameterConversions {
   implicit def mats(opt: MaterialOptions): MaterialParameters = opt.current.asInstanceOf[MaterialParameters]
   implicit def points(opt: PointsMaterialOptions): PointsMaterialParameters =
     opt.current.asInstanceOf[PointsMaterialParameters]
   implicit def meshBasic(opt: MeshBasicMaterialOptions): MeshBasicMaterialParameters =
     opt.current.asInstanceOf[MeshBasicMaterialParameters]
+  implicit def meshDepth(opt: MeshDepthMaterialOptions): MeshDepthMaterialParameters =
+    opt.current.asInstanceOf[MeshDepthMaterialParameters]
+  implicit def meshNormal(opt: MeshNormalMaterialOptions): MeshNormalMaterialParameters =
+    opt.current.asInstanceOf[MeshNormalMaterialParameters]
 }
 
 @js.native
@@ -195,7 +219,7 @@ object THREE extends js.Object {
         attribute: BufferAttribute
     ): Unit = js.native
     def setIndex(
-        index: BufferAttribute | js.Array[Double] | Null
+        index: BufferAttribute | js.Array[Int] | Null
     ): BufferGeometry = js.native
     def addGroup(
         start: Double,
@@ -203,6 +227,7 @@ object THREE extends js.Object {
         materialIndex: js.UndefOr[Double] = js.undefined
     ): Unit = js.native
     def computeBoundingBox(): Unit = js.native
+    def computeVertexNormals(): Unit = js.native
   }
 
   // GEOMETRIES
@@ -220,7 +245,11 @@ object THREE extends js.Object {
   @js.native
   class LatheGeometry extends BufferGeometry {}
   @js.native
-  class ParametricGeometry extends BufferGeometry {}
+  class ParametricGeometry(
+      func: js.Function3[Double, Double, Vector3, Unit],
+      slices: Int,
+      stacks: Int
+  ) extends BufferGeometry {}
   @js.native
   class PlaneGeometry extends BufferGeometry {}
   @js.native
@@ -272,7 +301,9 @@ object THREE extends js.Object {
     def this(parameters: MeshBasicMaterialParameters) = this
   }
   @js.native
-  class MeshDepthMaterial extends Material {}
+  class MeshDepthMaterial extends Material {
+    def this(parameters: MeshDepthMaterialParameters) = this
+  }
   @js.native
   class MeshDistanceMaterial extends Material {}
   @js.native
@@ -280,7 +311,10 @@ object THREE extends js.Object {
   @js.native
   class MeshMatcapMaterial extends Material {}
   @js.native
-  class MeshNormalMaterial extends Material {}
+  class MeshNormalMaterial extends Material {
+    def this(parameters: MeshNormalMaterialParameters) = this
+  }
+
   @js.native
   class MeshPhongMaterial extends Material {}
   @js.native
@@ -368,4 +402,20 @@ object THREE extends js.Object {
   class Clock extends js.Object {
     def getDelta(): Double = js.native
   }
+
+  @js.native
+  sealed trait Side extends js.Object {}
+
+  val FrontSide: Side = js.native
+  val BackSide: Side = js.native
+  val DoubleSide: Side = js.native
+
+}
+
+// EXTRAS
+
+@js.native
+@JSGlobal
+class OrbitControls(camera: THREE.Camera, domElement: HTMLElement) extends js.Object {
+  def update(): Unit = js.native
 }

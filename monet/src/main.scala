@@ -188,7 +188,7 @@ object Main {
   def main(args: Array[String]): Unit = {
     document.addEventListener(
       "DOMContentLoaded",
-      (e: Event) => { ThreeExamplePoints.raytest(); render() }
+      (e: Event) => { ThreeBlend.blend }
     )
   }
 
@@ -304,106 +304,6 @@ object Main {
       layers.map(setLayerSize).map(drawLayer)
       document.body.appendChild(layer.element)
     })
-
   }
 
-  def threejs() = {
-    import typings.three._
-    import typings.three.THREE._
-
-    val window = dom.window;
-    var mouseX = 0.0; var mouseY = 0.0;
-    var windowHalfX = window.innerWidth / 2;
-    var windowHalfY = window.innerHeight / 2;
-    var render: () => Unit = () => ();
-
-    def init() = {
-
-      val camera = new PerspectiveCamera(
-        60,
-        window.innerWidth / window.innerHeight,
-        1,
-        10000
-      );
-      camera.position.z = 2000;
-
-      val scene = new Scene();
-      scene.background = new Color(0xffffff);
-      scene.fog = new Fog(0xffffff, 1, 10000);
-
-      val geometry = new BoxGeometry(100, 100, 100);
-      val material = new MeshNormalMaterial();
-
-      val group = new Group();
-
-      for (i <- 0 until 100) {
-        val mesh = new Mesh(geometry, material);
-        mesh.position.x = math.random() * 2000 - 1000;
-        mesh.position.y = math.random() * 2000 - 1000;
-        mesh.position.z = math.random() * 2000 - 1000;
-        mesh.rotation.x = math.random() * 2 * math.Pi;
-        mesh.rotation.y = math.random() * 2 * math.Pi;
-
-        mesh.matrixAutoUpdate = false;
-        mesh.updateMatrix();
-        group.add(mesh);
-      }
-
-      scene.add(group);
-
-      val params = new WebGLRendererParameters(antialias = true)
-      val renderer = new WebGLRenderer(params);
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.domElement.classList.add("three-layer");
-      document.body.appendChild(renderer.domElement);
-
-      def onWindowResize(e: Event) = {
-
-        windowHalfX = window.innerWidth / 2;
-        windowHalfY = window.innerHeight / 2;
-
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      }
-
-      def onDocumentMouseMove(event: MouseEvent) = {
-        mouseX = (event.clientX - windowHalfX) * 10;
-        mouseY = (event.clientY - windowHalfY) * 10;
-      }
-
-      // document.addEventListener("mousemove", onDocumentMouseMove)
-      dom.window.addEventListener("resize", onWindowResize)
-
-      render = () => {
-
-        val time = System.nanoTime() * 0.0000000001;
-
-        val rx = Math.sin(time * 0.7) * 0.5;
-        val ry = Math.sin(time * 0.3) * 0.5;
-        val rz = Math.sin(time * 0.2) * 0.5;
-
-        camera.position.x += (mouseX - camera.position.x) * 0.05;
-        camera.position.y += (-mouseY - camera.position.y) * 0.05;
-
-        camera.lookAt(scene.position);
-
-        group.rotation.x = rx;
-        group.rotation.y = ry;
-        group.rotation.z = rz;
-        renderer.render(scene, camera);
-      }
-    }
-
-    var animate: scala.scalajs.js.Function1[Double, _] = null;
-    animate = (_: Double) => {
-      window.requestAnimationFrame(animate);
-      render();
-    }
-
-    init();
-    animate(0.0);
-  }
 }
