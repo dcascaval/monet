@@ -17,14 +17,14 @@ body {
 .pix-layer {
   position: absolute;
   top: 0px;
-  left:0px;
+  left: 0px;
   pointer-events: none;
 }
 
 .vec-layer {
   position: absolute;
   top: 0px;
-  left:0px;
+  left: 0px;
 }
 
 .three-layer {
@@ -32,4 +32,16 @@ body {
   top: 0px;
   left: 0px;
   opacity: 0.5;
+}
+
+.grad-bg {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  background: radial-gradient(
+    circle,
+    rgb(204, 204, 204) 0%,
+    rgb(236, 236, 236) 45%,
+    rgba(255, 255, 255, 1) 100%
+  );
 }

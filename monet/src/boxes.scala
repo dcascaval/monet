@@ -6,6 +6,7 @@ import org.scalajs.dom.document
 import org.scalajs.dom.raw.Event
 import org.scalajs.dom.Element
 import org.scalajs.dom.MouseEvent
+import org.scalajs.dom.KeyboardEvent
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
@@ -44,9 +45,9 @@ object ThreeBlend {
     def eval(parameter: Double): Pt3
   }
 
-  case class Circle(center: Pt3, radius: Double) extends Evaluable {
+  case class Circle(center: Pt3, radius: Double, rot: Double = math.Pi / 4.0) extends Evaluable {
     def eval(parameter: Double): Pt3 = {
-      val θ = parameter * 2 * math.Pi;
+      val θ = (parameter * 2 * math.Pi) + rot;
       val rx = center.x + radius * math.cos(θ)
       val ry = center.y + radius * math.sin(θ)
       Pt3(rx, ry, center.z)
@@ -78,8 +79,6 @@ object ThreeBlend {
     def makeGeometry() = {
       val geometry = new BufferGeometry();
 
-      val rect = Rect(Pt3(5, 5, -5), -10, -10)
-      val circ = Circle(Pt3(0, 0, 5), 5)
       val vDivs = 41
       val disc = 41
 
@@ -100,60 +99,92 @@ object ThreeBlend {
       def getPosition = getPoint(positions) _
       def getNormal = getPoint(normals) _
 
-      // COMPUTE POSITIONS (parametric surface)
-      for (i <- 0 until vDivs) {
-        var t = i.toDouble / (vDivs - 1.0)
-        var tz = cubic(t)
-        val itz = 1.0 - tz
-        val idx = disc * i;
-        for (j <- 0 until disc) {
-          val tx = j.toDouble / (disc - 1.0)
-          val pt = rect.eval(tx) * (tz) + circ.eval(tx) * (itz);
-          val nZ = t * rect.base.z + (1.0 - t) * circ.center.z
-          setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
-          if (i < vDivs - 1) {
-            val in = disc * (i + 1)
-            val jn = (j + 1) % disc
-            indices.push(idx + j, idx + jn, in + j, in + jn, in + j, idx + jn)
-          }
-        }
-      }
-
-      // COMPUTE NORMALS
-      for (i <- 0 until vDivs) {
-        for (j <- 0 until disc) {
+      var R_CIRC = 10.0;
+      var R_SQ = 5.0;
+      var rot = math.Pi / 4.0;
+      def compute() = {
+        val rect = Rect(Pt3(R_SQ, R_SQ, -5), -2 * R_SQ, -2 * R_SQ)
+        val circ = Circle(Pt3(0, 0, 5), R_CIRC, rot)
+        // COMPUTE POSITIONS (parametric surface)
+        for (i <- 0 until vDivs) {
+          var t = i.toDouble / (vDivs - 1.0)
+          var tz = cubic(t)
+          val itz = 1.0 - tz
           val idx = disc * i;
-          val jp = (j - 1) mod disc; val ip = disc * (i - 1)
-          val jn = (j + 1) mod disc; val in = disc * (i + 1)
-
-          var agg = Pt3(0, 0, 0)
-          var total = 0.0
-
-          val a = getPosition(idx + j); val c = getPosition(idx + jn); val d = getPosition(idx + jp);
-          if (i < vDivs - 1) {
-            val b = getPosition(in + j); val e = getPosition(in + jp)
-            agg += ((b - a) cross (c - a)) + ((a - b) cross (e - b)) + ((e - d) cross (a - d))
-            total += 3.0
+          for (j <- 0 until disc) {
+            val tx = j.toDouble / (disc - 1.0)
+            val pt = rect.eval(tx) * (tz) + circ.eval(tx) * (itz);
+            val nZ = t * rect.base.z + (1.0 - t) * circ.center.z
+            setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
+            if (i < vDivs - 1) {
+              val in = disc * (i + 1)
+              val jn = (j + 1) % disc
+              indices.push(idx + j, idx + jn, in + j, in + jn, in + j, idx + jn)
+            }
           }
-          if (i > 0) {
-            val b = getPosition(ip + j); val e = getPosition(ip + jn)
-            agg += ((b - a) cross (d - a)) + ((a - b) cross (e - b)) + ((e - c) cross (a - c))
-            total += 3.0
+        }
+
+        // COMPUTE NORMALS
+        for (i <- 0 until vDivs) {
+          for (j <- 0 until disc) {
+            val idx = disc * i;
+            val jp = (j - 1) mod disc; val ip = disc * (i - 1)
+            val jn = (j + 1) mod disc; val in = disc * (i + 1)
+
+            var agg = Pt3(0, 0, 0)
+            var total = 0.0
+
+            val a = getPosition(idx + j); val c = getPosition(idx + jn); val d = getPosition(idx + jp);
+            if (i < vDivs - 1) {
+              val b = getPosition(in + j); val e = getPosition(in + jp)
+              agg += ((b - a) cross (c - a)) + ((a - b) cross (e - b)) + ((e - d) cross (a - d))
+              total += 3.0
+            }
+            if (i > 0) {
+              val b = getPosition(ip + j); val e = getPosition(ip + jn)
+              agg += ((b - a) cross (d - a)) + ((a - b) cross (e - b)) + ((e - c) cross (a - c))
+              total += 3.0
+            }
+            agg *= 1.0 / total
+            setNormal(idx + j, agg)
           }
-          agg *= 1.0 / total
-          setNormal(idx + j, agg)
+        }
+        for (i <- 0 until vDivs) {
+          val j0 = disc * i;
+          val jn = disc * (i + 1) - 1;
+          val n0 = getNormal(j0); val nn = getNormal(jn);
+          val agg = n0.average(nn)
+          setNormal(j0, agg); setNormal(jn, agg);
         }
       }
-      for (i <- 0 until vDivs) {
-        val j0 = disc * i;
-        val jn = disc * (i + 1) - 1;
-        val n0 = getNormal(j0); val nn = getNormal(jn);
-        val agg = n0.average(nn)
-        setNormal(j0, agg); setNormal(jn, agg);
+
+      compute()
+      val posAttr = new BufferAttribute(positions, 3)
+      geometry.setAttribute("position", posAttr)
+      val normalAttr = new BufferAttribute(normals, 3)
+      geometry.setAttribute("normal", normalAttr)
+
+      def recompute() = {
+        compute();
+        posAttr.needsUpdate = true;
+        normalAttr.needsUpdate = true;
       }
 
-      geometry.setAttribute("position", new BufferAttribute(positions, 3))
-      geometry.setAttribute("normal", new BufferAttribute(normals, 3))
+      document.addEventListener(
+        "keydown",
+        (e: KeyboardEvent) => {
+          e.key match {
+            case "a" => { R_CIRC *= 0.9; recompute(); }
+            case "d" => { R_CIRC *= 1.1; recompute(); }
+            case "w" => { R_SQ *= 1.1; recompute(); }
+            case "s" => { R_SQ *= 0.9; recompute(); }
+            case "r" => { rot += 0.0628; recompute(); }
+            case "e" => { rot -= 0.0628; recompute(); }
+            case _   => ()
+          }
+        }
+      )
+
       geometry.setIndex(indices)
       geometry.computeBoundingBox()
       geometry
@@ -162,24 +193,24 @@ object ThreeBlend {
     val window = dom.window
     val aspect = window.innerWidth / window.innerHeight
     val container = document.createElement("div")
-    // container.classList.add("three-layer")
+    container.classList.add("grad-bg")
     document.body.appendChild(container)
 
     val scene = new Scene()
-    scene.background = new Color("#000000")
-    val camera = new PerspectiveCamera(45, aspect, 5.0, 100)
+    // scene.background = new Color("#000000")
+    val camera = new PerspectiveCamera(45, aspect, 1.0, 100)
     camera.position.set(10, 10, 10)
     camera.lookAt(scene.position)
     camera.updateMatrix()
 
     val geo = makeGeometry()
-    val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1 })
-    // val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true })
-    val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { side = DoubleSide })
+    val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1; color = "#000" })
+    val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true })
+    // val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { side = DoubleSide })
     val res1 = new Points(geo, mat1)
     val res2 = new Mesh(geo, mat2)
     scene.add(res1, res2)
-    val renderer = new WebGLRenderer(new WebGLRendererParameters { antialias = true })
+    val renderer = new WebGLRenderer(new WebGLRendererParameters { antialias = true; alpha = true })
     val controls = new OrbitControls(camera, renderer.domElement)
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(window.innerWidth, window.innerHeight)

@@ -300,7 +300,9 @@ object THREE extends js.Object {
       var array: NumArrayLike,
       var itemSize: Double,
       var normalized: Boolean = false
-  ) extends js.Object {}
+  ) extends js.Object {
+    var needsUpdate: Boolean = js.native
+  }
 
   @js.native
   trait Thresholdable extends js.Object {
