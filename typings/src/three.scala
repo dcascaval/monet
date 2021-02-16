@@ -410,12 +410,9 @@ object THREE extends js.Object {
   val BackSide: Side = js.native
   val DoubleSide: Side = js.native
 
-}
-
-// EXTRAS
-
-@js.native
-@JSGlobal
-class OrbitControls(camera: THREE.Camera, domElement: HTMLElement) extends js.Object {
-  def update(): Unit = js.native
+  // EXTRAS
+  @js.native
+  class OrbitControls(camera: THREE.Camera, domElement: HTMLElement) extends js.Object {
+    def update(): Unit = js.native
+  }
 }
