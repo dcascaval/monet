@@ -18,108 +18,57 @@ class OffscreenCanvas extends js.Object
 
 // PARAMETER CLASSES:
 // Nominally, these are part of THREE, but they are actually just interfaces, not classes,
-// and are never directly instantiated by name -- they are just types for bag-of-properties
-// inputs to various THREE functions.
-class WebGLRendererParameters(
-    var canvas: js.UndefOr[HTMLCanvasElement | OffscreenCanvas] = js.undefined,
-    var precision: js.UndefOr[String] = js.undefined,
-    var alpha: js.UndefOr[Boolean] = js.undefined,
-    var premultipliedAlpha: js.UndefOr[Boolean] = js.undefined,
-    var antialias: js.UndefOr[Boolean] = js.undefined,
-    var stencil: js.UndefOr[Boolean] = js.undefined,
-    var preserveDrawingBuffer: js.UndefOr[Boolean] = js.undefined,
-    var powerPreference: js.UndefOr[String] = js.undefined,
-    var depth: js.UndefOr[Boolean] = js.undefined,
-    var logarithmicDepthBuffer: js.UndefOr[Boolean] = js.undefined,
-    var failIfMajorPerformanceCaveat: js.UndefOr[Boolean] = js.undefined
-) extends js.Object {}
-
-@js.native
-trait MaterialParameters extends js.Object
-class MaterialOptions extends MaterialParameterSetters[MaterialOptions] {}
-
-trait MaterialParameterSetters[A] extends ParameterBuilder[A] {
-  def vertexColors(b: Boolean) = option("vertexColors", b)
-  def side(side: THREE.Side) = option("side", side)
+// and are never directly instantiated by name in JS --
+// they are structural types for bag-of-properties inputs to various THREE functions.
+trait WebGLRendererParameters extends js.Object {
+  var canvas: js.UndefOr[HTMLCanvasElement | OffscreenCanvas] = js.undefined
+  var precision: js.UndefOr[String] = js.undefined
+  var alpha: js.UndefOr[Boolean] = js.undefined
+  var premultipliedAlpha: js.UndefOr[Boolean] = js.undefined
+  var antialias: js.UndefOr[Boolean] = js.undefined
+  var stencil: js.UndefOr[Boolean] = js.undefined
+  var preserveDrawingBuffer: js.UndefOr[Boolean] = js.undefined
+  var powerPreference: js.UndefOr[String] = js.undefined
+  var depth: js.UndefOr[Boolean] = js.undefined
+  var logarithmicDepthBuffer: js.UndefOr[Boolean] = js.undefined
+  var failIfMajorPerformanceCaveat: js.UndefOr[Boolean] = js.undefined
 }
 
-// Obscenely unsafe, but useful for presenting a typesafe interface
-// along with performant initialization.
-trait ParameterBuilder[A] { self =>
-  var current: js.Dynamic = new js.Object().asInstanceOf[js.Dynamic]
-  def option(string: String, value: js.Any): A = {
-    current.updateDynamic(string)(value);
-    self.asInstanceOf[A]
-  }
+trait MaterialParameters extends js.Object {
+  var vertexColors: js.UndefOr[Boolean] = js.undefined
+  var side: js.UndefOr[THREE.Side] = js.undefined
 }
 
-@js.native
-trait LineMaterialParameters extends js.Object
-object LineMaterialOptions extends LineMaterialOptions
-class LineMaterialOptions extends LineMaterialSetters[LineMaterialOptions]
-
-trait LineMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def color(value: Double) = option("color", value)
-  def dashed(value: Boolean) = option("dashed", value)
-  def dashScale(value: Double) = option("dashScale", value)
-  def dashSize(value: Double) = option("dashSize", value)
-  def dashOffset(value: Double) = option("dashOffset", value)
-  def gapSize(value: Double) = option("gapSize", value)
-  def linewidth(value: Double) = option("linewidth", value)
-  def resolution(value: THREE.Vector2) = option("resolution", value)
+trait LineMaterialParameters extends MaterialParameters {
+  var color: js.UndefOr[Double] = js.undefined
+  var dashed: js.UndefOr[Boolean] = js.undefined
+  var dashScale: js.UndefOr[Double] = js.undefined
+  var dashSize: js.UndefOr[Double] = js.undefined
+  var dashOffset: js.UndefOr[Double] = js.undefined
+  var gapSize: js.UndefOr[Double] = js.undefined
+  var linewidth: js.UndefOr[Double] = js.undefined
+  var resolution: js.UndefOr[THREE.Vector2] = js.undefined
 }
 
-@js.native
-trait PointsMaterialParameters extends js.Object
-object PointsMaterialOptions extends PointsMaterialOptions
-class PointsMaterialOptions extends PointsMaterialSetters[PointsMaterialOptions]
-
-trait PointsMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def color(value: THREE.Color | String | Double) = option("color", value.asInstanceOf[js.Any])
-  def map(value: THREE.Texture | Null) = option("map", value.asInstanceOf[js.Any])
-  def alphaMap(value: THREE.Texture | Null) = option("alphaMap", value.asInstanceOf[js.Any])
-  def size(value: Double) = option("size", value)
-  def sizeAttenuation(value: Boolean) = option("sizeAttenuation", value)
-  def morphTargets(value: Boolean) = option("morphTargets", value)
+trait PointsMaterialParameters extends MaterialParameters {
+  var color: js.UndefOr[THREE.Color | String | Double] = js.undefined
+  var map: js.UndefOr[THREE.Texture | Null] = js.undefined
+  var alphaMap: js.UndefOr[THREE.Texture | Null] = js.undefined
+  var size: js.UndefOr[Double] = js.undefined
+  var sizeAttenuation: js.UndefOr[Boolean] = js.undefined
+  var morphTargets: js.UndefOr[Boolean] = js.undefined
 }
 
-@js.native
-trait MeshBasicMaterialParameters extends js.Object
-object MeshBasicMaterialOptions extends MeshBasicMaterialOptions
-class MeshBasicMaterialOptions extends MeshBasicMaterialSetters[MeshBasicMaterialOptions]
-
-trait MeshBasicMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def color(value: THREE.Color | String | Double) = option("color", value.asInstanceOf[js.Any])
+trait MeshBasicMaterialParameters extends MaterialParameters {
+  var color: js.UndefOr[THREE.Color | String | Double] = js.undefined
 }
 
-@js.native
-trait MeshDepthMaterialParameters extends js.Object
-object MeshDepthMaterialOptions extends MeshDepthMaterialOptions
-class MeshDepthMaterialOptions extends MeshDepthMaterialSetters[MeshDepthMaterialOptions]
-
-trait MeshDepthMaterialSetters[A] extends MaterialParameterSetters[A] {
-  def wireframe(value: Boolean) = option("wireframe", value)
-  def wireframeLinewidth(value: Double) = option("wireframeLinewidth", value)
+trait MeshDepthMaterialParameters extends MaterialParameters {
+  var wireframe: js.UndefOr[Boolean] = js.undefined
+  var wireframeLinewidth: js.UndefOr[Double] = js.undefined
 }
 
-@js.native
-trait MeshNormalMaterialParameters extends js.Object
-object MeshNormalMaterialOptions extends MeshNormalMaterialOptions
-class MeshNormalMaterialOptions extends MeshNormalMaterialSetters[MeshNormalMaterialOptions]
-
-trait MeshNormalMaterialSetters[A] extends MaterialParameterSetters[A] {}
-
-object ParameterConversions {
-  implicit def mats(opt: MaterialOptions): MaterialParameters = opt.current.asInstanceOf[MaterialParameters]
-  implicit def points(opt: PointsMaterialOptions): PointsMaterialParameters =
-    opt.current.asInstanceOf[PointsMaterialParameters]
-  implicit def meshBasic(opt: MeshBasicMaterialOptions): MeshBasicMaterialParameters =
-    opt.current.asInstanceOf[MeshBasicMaterialParameters]
-  implicit def meshDepth(opt: MeshDepthMaterialOptions): MeshDepthMaterialParameters =
-    opt.current.asInstanceOf[MeshDepthMaterialParameters]
-  implicit def meshNormal(opt: MeshNormalMaterialOptions): MeshNormalMaterialParameters =
-    opt.current.asInstanceOf[MeshNormalMaterialParameters]
-}
+trait MeshNormalMaterialParameters extends MaterialParameters {}
 
 @js.native
 @JSGlobal

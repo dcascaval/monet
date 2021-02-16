@@ -16,7 +16,6 @@ import scala.collection.mutable.ArrayBuffer
 object ThreeExamplePoints {
   def raytest() = {
     import typings.three._
-    import typings.three.ParameterConversions._
     import typings.three.THREE._
     import scalajs.js.typedarray._
 
@@ -71,9 +70,10 @@ object ThreeExamplePoints {
     def generatePointcloud(color: Color, width: Int, length: Int) = {
       val geometry = generatePointCloudGeometry(color, width, length);
       val material = new PointsMaterial(
-        PointsMaterialOptions
-          .size(pointSize)
-          .vertexColors(true)
+        new PointsMaterialParameters {
+          size = pointSize;
+          vertexColors = true
+        }
       )
       new Points(geometry, material);
     }
@@ -92,7 +92,10 @@ object ThreeExamplePoints {
 
       geometry.setIndex(new BufferAttribute(indices, 1));
       val material = new PointsMaterial(
-        PointsMaterialOptions.size(pointSize).vertexColors(true)
+        new PointsMaterialParameters {
+          size = pointSize;
+          vertexColors = true
+        }
       );
       new Points(geometry, material)
     }
@@ -116,7 +119,10 @@ object ThreeExamplePoints {
       geometry.setIndex(new BufferAttribute(indices, 1));
       geometry.addGroup(0, indices.length);
       val material = new PointsMaterial(
-        PointsMaterialOptions.size(pointSize).vertexColors(true)
+        new PointsMaterialParameters {
+          size = pointSize;
+          vertexColors = true
+        }
       );
       new Points(geometry, material)
     }
@@ -168,7 +174,7 @@ object ThreeExamplePoints {
 
     val sphereGeometry = new SphereGeometry(0.1, 32, 32);
     val sphereMaterial = new MeshBasicMaterial(
-      MeshBasicMaterialOptions.color(0xff0000)
+      new MeshBasicMaterialParameters { color = 0xff0000 }
     );
 
     for (i <- 0 until 40) {
@@ -177,7 +183,7 @@ object ThreeExamplePoints {
       spheres.addOne(sphere);
     }
     val renderer = new WebGLRenderer(
-      new WebGLRendererParameters(antialias = true)
+      new WebGLRendererParameters { antialias = true }
     );
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);

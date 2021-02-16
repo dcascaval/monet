@@ -72,7 +72,6 @@ object ThreeBlend {
 
   def blend = {
     import typings.three._
-    import typings.three.ParameterConversions._
     import typings.three.THREE._
     import scalajs.js.typedarray._
 
@@ -173,15 +172,13 @@ object ThreeBlend {
     camera.updateMatrix()
 
     val geo = makeGeometry()
-    val mat1 = new PointsMaterial(PointsMaterialOptions.size(0.1))
-    val mat2 = new MeshDepthMaterial(MeshDepthMaterialOptions.wireframe(true).wireframeLinewidth(1.0))
+    val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1 })
+    val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true; wireframeLinewidth = 1.0 })
     // val mat2 = new MeshNormalMaterial(MeshNormalMaterialOptions.side(DoubleSide))
     val res1 = new Points(geo, mat1)
     val res2 = new Mesh(geo, mat2)
     scene.add(res1, res2)
-    val renderer = new WebGLRenderer(
-      new WebGLRendererParameters(antialias = true)
-    )
+    val renderer = new WebGLRenderer(new WebGLRendererParameters { antialias = true })
     val controls = new OrbitControls(camera, renderer.domElement)
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(window.innerWidth, window.innerHeight)
@@ -253,7 +250,7 @@ object ThreeBoxes {
 
       scene.add(group);
 
-      val params = new WebGLRendererParameters(antialias = true)
+      val params = new WebGLRendererParameters { antialias = true }
       val renderer = new WebGLRenderer(params);
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
