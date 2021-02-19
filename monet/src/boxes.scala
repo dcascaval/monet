@@ -44,29 +44,63 @@ object ThreeBlend {
     def average(other: Pt3) = (self + other) * 0.5
   }
 
+  // A plane is composed of an origin and an x and y axis. The plane's normal
+  // is the cross product of these two axes, which must be perpendicular to each other.
+  case class Plane(val base: Pt3, val x: Pt3, val y: Pt3) {
+    val z = x cross y
+    // Cubic interpolated perpendicular plane
+    def interpolate(t: Double, other: Plane): Plane = {
+      // for now we will go with linear.
+      val tb = base * (1.0 - t) + other.base * t
+      val tx = x * (1.0 - t) + other.x * t
+      val ty = y * (1.0 - t) + other.y * t
+      Plane(tb, tx, ty)
+    }
+    // Rebase a point from its origin plane to this one. Consists of multiply
+    // by the matrix [X Y Z]
+    def rebase(point: Pt3) = {
+      val tx = (x.x * point.x + y.x * point.y + z.x * point.z)
+      val ty = (x.y * point.x + y.y * point.y + z.y * point.z)
+      val tz = (x.z * point.x + y.z * point.y + z.z * point.z)
+      Pt3(base.x + tx, base.y + ty, base.z + tz)
+    }
+  }
+
+  def test() = {
+    val pl1 = Plane(Pt3(0, 0, 0), Pt3(1, 0, 0), Pt3(0, 1, 0))
+    val pl2 = Plane(Pt3(0, 0, 5), Pt3(1, 0, 0), Pt3(0, 1, 0))
+    println(s"pl1z = ${pl1.z}")
+    println(s"pl2z = ${pl2.z}")
+
+    val p1 = Pt3(1, 1, 0)
+    val r1 = pl1.rebase(p1)
+    val r2 = pl2.rebase(p1)
+    println(s"r1 = $r1, r3 = $r2")
+  }
+
   trait Evaluable {
     def eval(parameter: Double): Pt3
-    val center: Pt3
+    val center: Plane
   }
 
-  case class Circle(val center: Pt3, radius: Double, rot: Double = math.Pi / 4.0) extends Evaluable {
+  case class Circle(val center: Plane, radius: Double, rot: Double) extends Evaluable {
     def eval(parameter: Double): Pt3 = {
-      val θ = (parameter * 2 * math.Pi) + rot;
-      val rx = center.x + radius * math.cos(θ)
-      val ry = center.y + radius * math.sin(θ)
-      Pt3(rx, ry, center.z)
+      val θ = (parameter * 2 * math.Pi) + rot
+      val rx = radius * math.cos(θ)
+      val ry = radius * math.sin(θ)
+      Pt3(rx, ry, 0.0)
     }
   }
 
-  case class Rect(base: Pt3, x: Double, y: Double) extends Evaluable {
+  case class Rect(base: Plane, x: Double, y: Double) extends Evaluable {
     def eval(parameter: Double): Pt3 = {
       def root(center: Double) =
-        math.max(0, math.min(1, 4.0 * ((-math.abs(center - parameter)) + 0.375)))
+        math.max(0, math.min(1, 4.0 * ((-math.abs(center - parameter)) + 0.375))) - 0.5
       val dx = x * root(0.375)
       val dy = y * root(0.625)
-      Pt3(base.x + dx, base.y + dy, base.z)
+      Pt3(dx, dy, 0.0)
     }
-    val center = Pt3(base.x + 0.5 * x, base.y + 0.5 * y, base.z)
+    val center = base
   }
 
   class Blend(shapes: Evaluable*) {
@@ -92,26 +126,33 @@ object ThreeBlend {
     var geo = new BufferGeometry();
 
     def generateMesher: Mesher = {
-      val pos = new Float32Array(vDivs * disc * 3)
-      val norm = new Float32Array(vDivs * disc * 3)
-      val idx = new js.Array[Double]()
+      val n = objects.length - 1
+      val pos = new Float32Array(n * vDivs * disc * 3)
+      val norm = new Float32Array(n * vDivs * disc * 3)
+      val indices = new js.Array[Double]()
 
       def setPoint(positions: Float32Array)(i: Int, value: Pt3): Unit = {
-        positions(3 * i) = value.x.toFloat
-        positions(3 * i + 1) = value.y.toFloat
-        positions(3 * i + 2) = value.z.toFloat
+        val idx = (3 * i);
+        positions(idx) = value.x.toFloat
+        positions(idx + 1) = value.y.toFloat
+        positions(idx + 2) = value.z.toFloat
       }
 
-      def getPoint(positions: Float32Array)(i: Int): Pt3 =
-        Pt3(positions(3 * i), positions(3 * i + 1), positions(3 * i + 2))
+      def getPoint(positions: Float32Array)(i: Int): Pt3 = {
+        val idx = (3 * i);
+        Pt3(positions(idx), positions(idx + 1), positions(idx + 2))
+      }
 
-      for (i <- 0 until vDivs) {
-        val ii = disc * i;
-        for (j <- 0 until disc) {
-          if (i < vDivs - 1) {
-            val in = disc * (i + 1)
-            val jn = (j + 1) % disc
-            idx.push(ii + j, ii + jn, in + j, in + jn, in + j, ii + jn)
+      for (k <- 0 until n) {
+        val nn = k * (vDivs * disc)
+        for (i <- 0 until vDivs) {
+          val ii = nn + disc * i;
+          for (j <- 0 until disc) {
+            if (i < vDivs - 1) {
+              val in = nn + disc * (i + 1)
+              val jn = (j + 1) % disc
+              indices.push(ii + j, ii + jn, in + j, in + jn, in + j, ii + jn)
+            }
           }
         }
       }
@@ -125,12 +166,12 @@ object ThreeBlend {
         // BUT, on normal geometry, we _have_ to call setIndex multiple times to get
         // the buffers to resize correctly.
         // As a result if we want to display wireframes we have to duplicate the data.
-        wireFrameGeo.setIndex(idx)
-        geo.setIndex(idx)
+        wireFrameGeo.setIndex(indices)
+        geo.setIndex(indices)
       } else {
-        geo.setIndex(idx)
-        wireFrameGeo.index.array = new Uint32Array(idx)
-        wireFrameGeo.index.count = idx.length
+        geo.setIndex(indices)
+        wireFrameGeo.index.array = new Uint32Array(indices)
+        wireFrameGeo.index.count = indices.length
         wireFrameGeo.index.needsUpdate = true
       }
 
@@ -149,28 +190,35 @@ object ThreeBlend {
     var mesher = generateMesher
 
     def computePoints = {
-      objects match {
-        case Vector(g1, g2) =>
-          // COMPUTE POSITIONS (parametric surface)
-          for (i <- 0 until vDivs) {
-            var t = i.toDouble / (vDivs - 1.0)
-            var tz = cubic(t)
-            val itz = 1.0 - tz
-            val idx = disc * i;
-            for (j <- 0 until disc) {
-              val tx = j.toDouble / (disc - 1.0)
-              val pt = g1.eval(tx) * (tz) + g2.eval(tx) * (itz);
-              val nZ = t * g1.center.z + (1.0 - t) * g2.center.z
-              mesher.setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
-            }
+      for (n <- 0 until (objects.length - 1)) {
+        val g1 = objects(n); val g2 = objects(n + 1)
+        // COMPUTE POSITIONS (parametric surface)
+        // TODO: refactor to use base planes and interpolate between those.
+        //       basically, what we want is our divisions to be arc-length
+        //       spaced on the cubic spline whose end tangents are the
+        //       normals of the base planes we are interpolating between.
+        for (i <- 0 until vDivs) {
+          var t = i.toDouble / (vDivs - 1.0)
+          var tz = cubic(t)
+          val itz = 1.0 - tz
+          val idx = n * (vDivs * disc) + disc * i;
+          val iPlane = g1.center.interpolate(t, g2.center)
+          // println(s"iPlane: $iPlane")
+          for (j <- 0 until disc) {
+            val tx = j.toDouble / (disc - 1.0)
+            val pt = g1.eval(tx) * (itz) + g2.eval(tx) * (tz);
+            val rb = iPlane.rebase(pt)
+            mesher.setPosition(idx + j, rb)
           }
-        case _ => ()
+        }
       }
     }
 
     def computeNormals = {
-      // COMPUTE NORMALS
-      for (i <- 0 until vDivs) {
+      // COMPUTE NORMALS. TODO: this is doing 6x the work it needs to be
+
+      val bound = vDivs * (objects.length - 1)
+      for (i <- 0 until bound) {
         for (j <- 0 until disc) {
           val idx = disc * i;
           val jp = (j - 1) mod disc; val ip = disc * (i - 1)
@@ -181,7 +229,7 @@ object ThreeBlend {
 
           val a = mesher.getPosition(idx + j); val c = mesher.getPosition(idx + jn);
           val d = mesher.getPosition(idx + jp);
-          if (i < vDivs - 1) {
+          if (i < bound - 1) {
             val b = mesher.getPosition(in + j); val e = mesher.getPosition(in + jp)
             agg += ((b - a) cross (c - a)) + ((a - b) cross (e - b)) + ((e - d) cross (a - d))
             total += 3.0
@@ -195,13 +243,14 @@ object ThreeBlend {
           mesher.setNormal(idx + j, agg)
         }
       }
-      for (i <- 0 until vDivs) {
+      for (i <- 0 until bound) {
         val j0 = disc * i;
         val jn = disc * (i + 1) - 1;
         val n0 = mesher.getNormal(j0); val nn = mesher.getNormal(jn);
         val agg = n0.average(nn)
         mesher.setNormal(j0, agg); mesher.setNormal(jn, agg);
       }
+
     }
 
     def replaceAttribute(name: String, attr: BufferAttribute) = {
@@ -252,6 +301,7 @@ object ThreeBlend {
   }
 
   def blend = {
+    // test()
     import typings.three._
     import typings.three.THREE._
     import scalajs.js.typedarray._
@@ -285,22 +335,27 @@ object ThreeBlend {
     def makeGeometry() = {
 
       var vd = 41; var hd = 41;
-      var R_CIRC = 10.0;
-      var R_SQ = 5.0;
-      var rot = math.Pi / 4.0;
+      var R_CIRC = 5.0;
+      var R_SQ = 5.0
+      var rot = math.Pi + math.Pi / 4
+
+      def orthoPlane(pt: Pt3) = Plane(pt, Pt3(1, 0, 0), Pt3(0, 1, 0))
 
       def shapes = {
-        val rect = Rect(Pt3(R_SQ, R_SQ, -5), -2 * R_SQ, -2 * R_SQ)
-        val circ = Circle(Pt3(0, 0, 5), R_CIRC, rot)
-        (rect, circ)
+        val bp1 = orthoPlane(Pt3(0, 0, -5))
+        val bp2 = orthoPlane(Pt3(0, 0, 5))
+        val bp3 = orthoPlane(Pt3(0, 0, 15))
+        val rect = Rect(bp1, 2 * R_SQ, 2 * R_SQ)
+        val circ = Circle(bp2, R_CIRC, rot)
+        val r3 = Rect(bp3, 2 * R_SQ, 2 * R_SQ)
+        Seq(rect, circ, r3)
       }
 
-      val (r, c) = shapes
-      val blend = new Blend(r, c)
+      val blend = new Blend(shapes: _*)
 
       def recomputePositions = {
-        val (r, c) = shapes
-        blend.setShapes(r, c)
+        // val (r, c) = shapes
+        blend.setShapes(shapes: _*)
         blend.recalculatePositions
         render
       }
@@ -327,8 +382,8 @@ object ThreeBlend {
             case "e" => rot -= 0.0628
             case "o" => vd -= 1; regen
             case "p" => vd += 1; regen
-            case "k" => hd -= 1; regen
-            case "l" => hd += 1; regen
+            case "k" => hd -= 4; regen
+            case "l" => hd += 4; regen
             case _   => needsRecompute = false
           }
           if (needsRecompute) recomputePositions
@@ -341,8 +396,8 @@ object ThreeBlend {
     val (wireFrameGeo, geo) = makeGeometry()
     val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1; color = "#FFF" })
     val isWireframe = true
-    // val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { side = DoubleSide })
-    val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { wireframe = true; side = DoubleSide })
+    // val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { side = DoubleSide; wireframe = isWireframe })
+    val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { wireframe = isWireframe; side = DoubleSide })
 
     val res1 = new Points(geo, mat1)
     var res2 = new Mesh(if (isWireframe) wireFrameGeo else geo, mat2)
