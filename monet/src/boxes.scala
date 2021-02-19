@@ -188,6 +188,7 @@ object ThreeBlend {
     }
 
     var mesher = generateMesher
+    var eps = 1e-7
 
     def computePoints = {
       for (n <- 0 until (objects.length - 1)) {
@@ -199,6 +200,7 @@ object ThreeBlend {
         //       normals of the base planes we are interpolating between.
         for (i <- 0 until vDivs) {
           var t = i.toDouble / (vDivs - 1.0)
+          if (n != objects.length - 1 && i == vDivs - 1) t -= eps
           var tz = cubic(t)
           val itz = 1.0 - tz
           val idx = n * (vDivs * disc) + disc * i;
