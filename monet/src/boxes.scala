@@ -10,7 +10,10 @@ import org.scalajs.dom.KeyboardEvent
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
-import scala.scalajs.js.typedarray.Float32Array
+import scala.scalajs.js.typedarray._
+
+import typings.three.THREE._
+import java.nio.Buffer
 
 object ThreeBlend {
 
@@ -43,9 +46,10 @@ object ThreeBlend {
 
   trait Evaluable {
     def eval(parameter: Double): Pt3
+    val center: Pt3
   }
 
-  case class Circle(center: Pt3, radius: Double, rot: Double = math.Pi / 4.0) extends Evaluable {
+  case class Circle(val center: Pt3, radius: Double, rot: Double = math.Pi / 4.0) extends Evaluable {
     def eval(parameter: Double): Pt3 = {
       val θ = (parameter * 2 * math.Pi) + rot;
       val rx = center.x + radius * math.cos(θ)
@@ -62,6 +66,182 @@ object ThreeBlend {
       val dy = y * root(0.625)
       Pt3(base.x + dx, base.y + dy, base.z)
     }
+    val center = Pt3(base.x + 0.5 * x, base.y + 0.5 * y, base.z)
+  }
+
+  class Blend(shapes: Evaluable*) {
+    var iters = 0
+    var vDivs = 41
+    var disc = 41
+    var objects = shapes.toVector
+
+    def setShapes(shapes: Evaluable*): Unit = {
+      objects = shapes.toVector
+    }
+
+    trait Mesher {
+      val posAttr: BufferAttribute
+      val normalAttr: BufferAttribute
+      def getPosition(i: Int): Pt3
+      def getNormal(i: Int): Pt3
+      def setPosition(i: Int, value: Pt3): Unit
+      def setNormal(i: Int, value: Pt3): Unit
+    }
+
+    var wireFrameGeo = new BufferGeometry();
+    var geo = new BufferGeometry();
+
+    def generateMesher: Mesher = {
+      val pos = new Float32Array(vDivs * disc * 3)
+      val norm = new Float32Array(vDivs * disc * 3)
+      val idx = new js.Array[Double]()
+
+      def setPoint(positions: Float32Array)(i: Int, value: Pt3): Unit = {
+        positions(3 * i) = value.x.toFloat
+        positions(3 * i + 1) = value.y.toFloat
+        positions(3 * i + 2) = value.z.toFloat
+      }
+
+      def getPoint(positions: Float32Array)(i: Int): Pt3 =
+        Pt3(positions(3 * i), positions(3 * i + 1), positions(3 * i + 2))
+
+      for (i <- 0 until vDivs) {
+        val ii = disc * i;
+        for (j <- 0 until disc) {
+          if (i < vDivs - 1) {
+            val in = disc * (i + 1)
+            val jn = (j + 1) % disc
+            idx.push(ii + j, ii + jn, in + j, in + jn, in + j, ii + jn)
+          }
+        }
+      }
+
+      if (iters == 0) {
+        // This wonderful state of affairs is due to:
+        // https://github.com/mrdoob/three.js/issues/20933,
+        // wherein we cannot call `setIndex()` twice on standard mesh geometry, when it is
+        // wireframe because this screws up the indexing.
+        //
+        // BUT, on normal geometry, we _have_ to call setIndex multiple times to get
+        // the buffers to resize correctly.
+        // As a result if we want to display wireframes we have to duplicate the data.
+        wireFrameGeo.setIndex(idx)
+        geo.setIndex(idx)
+      } else {
+        geo.setIndex(idx)
+        wireFrameGeo.index.array = new Uint32Array(idx)
+        wireFrameGeo.index.count = idx.length
+        wireFrameGeo.index.needsUpdate = true
+      }
+
+      iters += 1
+
+      new Mesher {
+        val posAttr = new BufferAttribute(pos, 3)
+        val normalAttr = new BufferAttribute(norm, 3)
+        def getPosition(i: Int): Pt3 = getPoint(pos)(i)
+        def setPosition(i: Int, v: Pt3) = setPoint(pos)(i, v)
+        def getNormal(i: Int): Pt3 = getPoint(norm)(i)
+        def setNormal(i: Int, v: Pt3) = setPoint(norm)(i, v)
+      }
+    }
+
+    var mesher = generateMesher
+
+    def computePoints = {
+      objects match {
+        case Vector(g1, g2) =>
+          // COMPUTE POSITIONS (parametric surface)
+          for (i <- 0 until vDivs) {
+            var t = i.toDouble / (vDivs - 1.0)
+            var tz = cubic(t)
+            val itz = 1.0 - tz
+            val idx = disc * i;
+            for (j <- 0 until disc) {
+              val tx = j.toDouble / (disc - 1.0)
+              val pt = g1.eval(tx) * (tz) + g2.eval(tx) * (itz);
+              val nZ = t * g1.center.z + (1.0 - t) * g2.center.z
+              mesher.setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
+            }
+          }
+        case _ => ()
+      }
+    }
+
+    def computeNormals = {
+      // COMPUTE NORMALS
+      for (i <- 0 until vDivs) {
+        for (j <- 0 until disc) {
+          val idx = disc * i;
+          val jp = (j - 1) mod disc; val ip = disc * (i - 1)
+          val jn = (j + 1) mod disc; val in = disc * (i + 1)
+
+          var agg = Pt3(0, 0, 0)
+          var total = 0.0
+
+          val a = mesher.getPosition(idx + j); val c = mesher.getPosition(idx + jn);
+          val d = mesher.getPosition(idx + jp);
+          if (i < vDivs - 1) {
+            val b = mesher.getPosition(in + j); val e = mesher.getPosition(in + jp)
+            agg += ((b - a) cross (c - a)) + ((a - b) cross (e - b)) + ((e - d) cross (a - d))
+            total += 3.0
+          }
+          if (i > 0) {
+            val b = mesher.getPosition(ip + j); val e = mesher.getPosition(ip + jn)
+            agg += ((b - a) cross (d - a)) + ((a - b) cross (e - b)) + ((e - c) cross (a - c))
+            total += 3.0
+          }
+          agg *= 1.0 / total
+          mesher.setNormal(idx + j, agg)
+        }
+      }
+      for (i <- 0 until vDivs) {
+        val j0 = disc * i;
+        val jn = disc * (i + 1) - 1;
+        val n0 = mesher.getNormal(j0); val nn = mesher.getNormal(jn);
+        val agg = n0.average(nn)
+        mesher.setNormal(j0, agg); mesher.setNormal(jn, agg);
+      }
+    }
+
+    def replaceAttribute(name: String, attr: BufferAttribute) = {
+      if (wireFrameGeo.hasAttribute(name)) {
+        wireFrameGeo.deleteAttribute(name)
+        geo.deleteAttribute(name)
+      }
+      wireFrameGeo.setAttribute(name, attr)
+      geo.setAttribute(name, attr)
+      attr.needsUpdate = true
+    }
+
+    // TODO: check if we need to push needsUpdate = true here because we're creating
+    // the buffer attributes before we're actually initializing the underlying data
+    def geometry = {
+      computePoints
+      computeNormals
+      replaceAttribute("position", mesher.posAttr)
+      replaceAttribute("normal", mesher.normalAttr)
+      wireFrameGeo.computeBoundingBox()
+      geo.computeBoundingBox()
+      (wireFrameGeo, geo)
+    }
+
+    def recalculatePositions = {
+      computePoints
+      computeNormals
+      mesher.posAttr.needsUpdate = true
+      mesher.normalAttr.needsUpdate = true
+    }
+
+    def recalculateGeometry(verticalDivisons: Int, horizontalDisc: Int) = {
+      vDivs = verticalDivisons
+      disc = horizontalDisc
+      mesher = generateMesher
+      geometry
+      wireFrameGeo.computeBoundingBox()
+      geo.computeBoundingBox()
+    }
+
   }
 
   def cubic(t: Double) = {
@@ -100,98 +280,33 @@ object ThreeBlend {
       renderer.render(scene, camera);
     }
 
+    var updateMesh: Unit => Unit = (_: Unit) => ();
+
     def makeGeometry() = {
-      val geometry = new BufferGeometry();
 
-      val vDivs = 41
-      val disc = 41
-
-      val positions = new Float32Array(vDivs * disc * 3)
-      val normals = new Float32Array(vDivs * disc * 3)
-      val indices = new js.Array[Int]()
-
-      def setPoint(positions: Float32Array)(i: Int, value: Pt3): Unit = {
-        positions(3 * i) = value.x.toFloat
-        positions(3 * i + 1) = value.y.toFloat
-        positions(3 * i + 2) = value.z.toFloat
-      }
-      def getPoint(positions: Float32Array)(i: Int): Pt3 =
-        Pt3(positions(3 * i), positions(3 * i + 1), positions(3 * i + 2))
-
-      def setPosition = setPoint(positions) _
-      def setNormal = setPoint(normals) _
-      def getPosition = getPoint(positions) _
-      def getNormal = getPoint(normals) _
-
+      var vd = 41; var hd = 41;
       var R_CIRC = 10.0;
       var R_SQ = 5.0;
       var rot = math.Pi / 4.0;
-      def compute() = {
+
+      def shapes = {
         val rect = Rect(Pt3(R_SQ, R_SQ, -5), -2 * R_SQ, -2 * R_SQ)
         val circ = Circle(Pt3(0, 0, 5), R_CIRC, rot)
-        // COMPUTE POSITIONS (parametric surface)
-        for (i <- 0 until vDivs) {
-          var t = i.toDouble / (vDivs - 1.0)
-          var tz = cubic(t)
-          val itz = 1.0 - tz
-          val idx = disc * i;
-          for (j <- 0 until disc) {
-            val tx = j.toDouble / (disc - 1.0)
-            val pt = rect.eval(tx) * (tz) + circ.eval(tx) * (itz);
-            val nZ = t * rect.base.z + (1.0 - t) * circ.center.z
-            setPosition(idx + j, Pt3(pt.x, pt.y, nZ))
-            if (i < vDivs - 1) {
-              val in = disc * (i + 1)
-              val jn = (j + 1) % disc
-              indices.push(idx + j, idx + jn, in + j, in + jn, in + j, idx + jn)
-            }
-          }
-        }
-
-        // COMPUTE NORMALS
-        for (i <- 0 until vDivs) {
-          for (j <- 0 until disc) {
-            val idx = disc * i;
-            val jp = (j - 1) mod disc; val ip = disc * (i - 1)
-            val jn = (j + 1) mod disc; val in = disc * (i + 1)
-
-            var agg = Pt3(0, 0, 0)
-            var total = 0.0
-
-            val a = getPosition(idx + j); val c = getPosition(idx + jn); val d = getPosition(idx + jp);
-            if (i < vDivs - 1) {
-              val b = getPosition(in + j); val e = getPosition(in + jp)
-              agg += ((b - a) cross (c - a)) + ((a - b) cross (e - b)) + ((e - d) cross (a - d))
-              total += 3.0
-            }
-            if (i > 0) {
-              val b = getPosition(ip + j); val e = getPosition(ip + jn)
-              agg += ((b - a) cross (d - a)) + ((a - b) cross (e - b)) + ((e - c) cross (a - c))
-              total += 3.0
-            }
-            agg *= 1.0 / total
-            setNormal(idx + j, agg)
-          }
-        }
-        for (i <- 0 until vDivs) {
-          val j0 = disc * i;
-          val jn = disc * (i + 1) - 1;
-          val n0 = getNormal(j0); val nn = getNormal(jn);
-          val agg = n0.average(nn)
-          setNormal(j0, agg); setNormal(jn, agg);
-        }
+        (rect, circ)
       }
 
-      compute()
-      val posAttr = new BufferAttribute(positions, 3)
-      geometry.setAttribute("position", posAttr)
-      val normalAttr = new BufferAttribute(normals, 3)
-      geometry.setAttribute("normal", normalAttr)
+      val (r, c) = shapes
+      val blend = new Blend(r, c)
 
-      def recompute = {
-        compute()
-        posAttr.needsUpdate = true
-        normalAttr.needsUpdate = true
+      def recomputePositions = {
+        val (r, c) = shapes
+        blend.setShapes(r, c)
+        blend.recalculatePositions
+        render
+      }
+
+      def recomputeGeometry = {
+        blend.recalculateGeometry(vd, hd)
         render
       }
 
@@ -199,6 +314,10 @@ object ThreeBlend {
         "keydown",
         (e: KeyboardEvent) => {
           var needsRecompute = true;
+          def regen = {
+            recomputeGeometry
+            needsRecompute = false
+          }
           e.key match {
             case "a" => R_CIRC *= 0.9
             case "d" => R_CIRC *= 1.1
@@ -206,23 +325,27 @@ object ThreeBlend {
             case "s" => R_SQ *= 0.9
             case "r" => rot += 0.0628
             case "e" => rot -= 0.0628
+            case "o" => vd -= 1; regen
+            case "p" => vd += 1; regen
+            case "k" => hd -= 1; regen
+            case "l" => hd += 1; regen
             case _   => needsRecompute = false
           }
-          if (needsRecompute) recompute
+          if (needsRecompute) recomputePositions
         }
       )
 
-      geometry.setIndex(indices)
-      geometry.computeBoundingBox()
-      geometry
+      blend.geometry
     }
 
-    val geo = makeGeometry()
-    val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1; color = "#000" })
-    val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true })
-    // val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { side = DoubleSide })
+    val (wireFrameGeo, geo) = makeGeometry()
+    val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1; color = "#FFF" })
+    val isWireframe = true
+    // val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { side = DoubleSide })
+    val mat2 = new MeshNormalMaterial(new MeshNormalMaterialParameters { wireframe = true; side = DoubleSide })
+
     val res1 = new Points(geo, mat1)
-    val res2 = new Mesh(geo, mat2)
+    var res2 = new Mesh(if (isWireframe) wireFrameGeo else geo, mat2)
     scene.add(res1, res2)
 
     def onWindowResize(e: Event) = {

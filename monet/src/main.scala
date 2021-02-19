@@ -223,7 +223,6 @@ object Main {
         // https://www.w3.org/TR/SVG/coords.html
         val cx = 250.0; val cy = 250.0; val px = 0.1;
         val r = px * (math.sqrt(w * w + h * h) / math.sqrt(2.0));
-        println(r);
 
         // Find the tangent from the border point to the circle.
         // TODO: add a web-assembly based 2d geometry library

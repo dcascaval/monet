@@ -68,7 +68,9 @@ trait MeshDepthMaterialParameters extends MaterialParameters {
   var wireframeLinewidth: js.UndefOr[Double] = js.undefined
 }
 
-trait MeshNormalMaterialParameters extends MaterialParameters {}
+trait MeshNormalMaterialParameters extends MaterialParameters {
+  var wireframe: js.UndefOr[Boolean] = js.undefined
+}
 
 @js.native
 @JSGlobal
@@ -95,6 +97,7 @@ object THREE extends js.Object {
     var matrixAutoUpdate: Boolean = js.native;
     def updateMatrix(): Unit = js.native;
     def add(objs: Object3D*): Unit = js.native;
+    def remove(objs: Object3D*): Unit = js.native;
     def lookAt(
         vector: Vector3 | Double,
         y: js.UndefOr[Double] = js.undefined,
@@ -162,13 +165,23 @@ object THREE extends js.Object {
   }
 
   @js.native
+  trait UpdateRange extends js.Object {
+    var offset: Int = js.native
+    var count: Int = js.native
+  }
+
+  @js.native
   class BufferGeometry extends js.Object {
     def setAttribute(
         name: String,
         attribute: BufferAttribute
     ): Unit = js.native
+    val updateRange: UpdateRange = js.native
+    def hasAttribute(name: String): Boolean = js.native
+    def deleteAttribute(name: String): Unit = js.native
+    var index: BufferAttribute = js.native
     def setIndex(
-        index: BufferAttribute | js.Array[Int] | Null
+        index: BufferAttribute | js.Array[Double] | Null
     ): BufferGeometry = js.native
     def addGroup(
         start: Double,
@@ -177,6 +190,8 @@ object THREE extends js.Object {
     ): Unit = js.native
     def computeBoundingBox(): Unit = js.native
     def computeVertexNormals(): Unit = js.native
+    @JSName("clone")
+    def js_clone(): BufferGeometry = js.native
   }
 
   // GEOMETRIES
@@ -220,7 +235,9 @@ object THREE extends js.Object {
   @js.native
   class TubeGeometry extends BufferGeometry {}
   @js.native
-  class WireframeGeometry extends BufferGeometry {}
+  class WireframeGeometry extends BufferGeometry {
+    def this(vals: BufferGeometry) = this
+  }
 
   //
   //
@@ -228,7 +245,9 @@ object THREE extends js.Object {
   //
   //
   @js.native
-  class Material extends js.Object {}
+  class Material extends js.Object {
+    var needsUpdate: Boolean = js.native
+  }
 
   // MISC
   @js.native
@@ -293,15 +312,23 @@ object THREE extends js.Object {
     def setPixelRatio(value: Double): Unit = js.native
   }
 
-  type NumArrayLike = js.Array[Double] | Float32Array | Uint16Array
+  type NumArrayLike = js.Array[Double] | js.Array[Int] | Float32Array | Uint16Array | Uint32Array
 
   @js.native
   class BufferAttribute(
-      var array: NumArrayLike,
-      var itemSize: Double,
-      var normalized: Boolean = false
   ) extends js.Object {
     var needsUpdate: Boolean = js.native
+    var array: NumArrayLike = js.native
+    var itemSize: Double = js.native
+    var normalized: Boolean = js.native
+    var count: Int = js.native
+    var version: Int = js.native // undocumented, sketchy
+    def this(values: NumArrayLike, itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this
+  }
+
+  @js.native
+  class Uint32BufferAttribute extends BufferAttribute {
+    def this(values: js.Array[Int], itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this
   }
 
   @js.native
@@ -367,4 +394,5 @@ object THREE extends js.Object {
     def update(): Unit = js.native
     def addEventListener(t: String, e: js.Function1[Event, Unit]): Unit = js.native
   }
+
 }
