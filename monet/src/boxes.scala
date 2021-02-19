@@ -76,6 +76,30 @@ object ThreeBlend {
     import typings.three.THREE._
     import scalajs.js.typedarray._
 
+    val window = dom.window
+    val aspect = window.innerWidth / window.innerHeight
+    val container = document.createElement("div")
+    container.classList.add("grad-bg")
+    document.body.appendChild(container)
+
+    val scene = new Scene()
+    // scene.background = new Color("#000000")
+    val camera = new PerspectiveCamera(45, aspect, 1.0, 100)
+    camera.position.set(10, 10, 10)
+    camera.lookAt(scene.position)
+    camera.updateMatrix()
+
+    val renderer = new WebGLRenderer(new WebGLRendererParameters { antialias = true; alpha = true })
+    val controls = new OrbitControls(camera, renderer.domElement)
+    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    container.appendChild(renderer.domElement)
+    controls.update()
+
+    def render = {
+      renderer.render(scene, camera);
+    }
+
     def makeGeometry() = {
       val geometry = new BufferGeometry();
 
@@ -164,24 +188,27 @@ object ThreeBlend {
       val normalAttr = new BufferAttribute(normals, 3)
       geometry.setAttribute("normal", normalAttr)
 
-      def recompute() = {
-        compute();
-        posAttr.needsUpdate = true;
-        normalAttr.needsUpdate = true;
+      def recompute = {
+        compute()
+        posAttr.needsUpdate = true
+        normalAttr.needsUpdate = true
+        render
       }
 
       document.addEventListener(
         "keydown",
         (e: KeyboardEvent) => {
+          var needsRecompute = true;
           e.key match {
-            case "a" => { R_CIRC *= 0.9; recompute(); }
-            case "d" => { R_CIRC *= 1.1; recompute(); }
-            case "w" => { R_SQ *= 1.1; recompute(); }
-            case "s" => { R_SQ *= 0.9; recompute(); }
-            case "r" => { rot += 0.0628; recompute(); }
-            case "e" => { rot -= 0.0628; recompute(); }
-            case _   => ()
+            case "a" => R_CIRC *= 0.9
+            case "d" => R_CIRC *= 1.1
+            case "w" => R_SQ *= 1.1
+            case "s" => R_SQ *= 0.9
+            case "r" => rot += 0.0628
+            case "e" => rot -= 0.0628
+            case _   => needsRecompute = false
           }
+          if (needsRecompute) recompute
         }
       )
 
@@ -190,19 +217,6 @@ object ThreeBlend {
       geometry
     }
 
-    val window = dom.window
-    val aspect = window.innerWidth / window.innerHeight
-    val container = document.createElement("div")
-    container.classList.add("grad-bg")
-    document.body.appendChild(container)
-
-    val scene = new Scene()
-    // scene.background = new Color("#000000")
-    val camera = new PerspectiveCamera(45, aspect, 1.0, 100)
-    camera.position.set(10, 10, 10)
-    camera.lookAt(scene.position)
-    camera.updateMatrix()
-
     val geo = makeGeometry()
     val mat1 = new PointsMaterial(new PointsMaterialParameters { size = 0.1; color = "#000" })
     val mat2 = new MeshDepthMaterial(new MeshDepthMaterialParameters { wireframe = true })
@@ -210,30 +224,18 @@ object ThreeBlend {
     val res1 = new Points(geo, mat1)
     val res2 = new Mesh(geo, mat2)
     scene.add(res1, res2)
-    val renderer = new WebGLRenderer(new WebGLRendererParameters { antialias = true; alpha = true })
-    val controls = new OrbitControls(camera, renderer.domElement)
-    renderer.setPixelRatio(window.devicePixelRatio)
-    renderer.setSize(window.innerWidth, window.innerHeight)
-    container.appendChild(renderer.domElement)
-    controls.update()
 
     def onWindowResize(e: Event) = {
       camera.aspect = window.innerWidth / window.innerHeight
       camera.updateProjectionMatrix()
       renderer.setSize(window.innerWidth, window.innerHeight)
-      renderer.render(scene, camera)
-    }
-
-    var animate: scala.scalajs.js.Function1[Double, _] = null;
-    animate = (_: Double) => {
-      window.requestAnimationFrame(animate);
-      controls.update()
-      renderer.render(scene, camera);
+      render
     }
 
     renderer.render(scene, camera)
     window.addEventListener("resize", onWindowResize);
-    animate(0.0)
+    controls.addEventListener("change", (e: Event) => render)
+    render
   }
 }
 

@@ -365,5 +365,6 @@ object THREE extends js.Object {
   @js.native
   class OrbitControls(camera: THREE.Camera, domElement: HTMLElement) extends js.Object {
     def update(): Unit = js.native
+    def addEventListener(t: String, e: js.Function1[Event, Unit]): Unit = js.native
   }
 }
