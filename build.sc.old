@@ -2,16 +2,16 @@ import mill._, scalalib._
 import mill.scalajslib._
 
 object typings extends ScalaJSModule {
-  def scalaVersion = "2.13.4"
-  def scalaJSVersion = "1.4.0"
+  def scalaVersion = "3.0.0"
+  def scalaJSVersion = "1.5.1"
   def ivyDeps = Agg(
     ivy"org.scala-js::scalajs-dom::1.1.0"
   )
 }
 
 object monet extends ScalaJSModule {
-  def scalaVersion = "2.13.4"
-  def scalaJSVersion = "1.4.0"
+  def scalaVersion = "3.0.0"
+  def scalaJSVersion = "1.5.1"
   def ivyDeps = Agg(
     ivy"org.scala-js::scalajs-dom::1.1.0"
   )

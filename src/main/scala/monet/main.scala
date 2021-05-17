@@ -129,19 +129,13 @@ case class Circle(val position: Pt, radius: String, fill: Gradient)(implicit
   ctx.current.dwg.appendChild(circ)
 }
 
-object DraggableImpls {
-  implicit val dragCircle = new Draggable[Circle] {
-    def basePoint(c: Circle) = c.position
-    def element(c: Circle) = c.circ
-    def render(e: Element, loc: Pt): Unit = updateCircleCenter(e, loc)
-  }
+given Draggable[Circle] with
+  def basePoint(c: Circle) = c.position
+  def element(c: Circle) = c.circ
+  def render(e: Element, loc: Pt): Unit = updateCircleCenter(e, loc)
 
-  implicit class DraggableSyntax[A](a: A)(implicit drg: Draggable[A]) {
-    def draggable = drg.draggable(a)
-  }
-
-}
-import DraggableImpls._
+extension [A](a: A)(using drg: Draggable[A])
+  def draggable = drg.draggable(a)
 
 sealed trait Draggable[T] {
   def basePoint(geometry: T): Pt

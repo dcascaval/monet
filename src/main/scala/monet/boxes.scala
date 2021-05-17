@@ -405,7 +405,7 @@ object ThreeBlend {
     var res2 = new Mesh(if (isWireframe) wireFrameGeo else geo, mat2)
     scene.add(res1, res2)
 
-    def onWindowResize(e: Event) = {
+    val onWindowResize = (e: Event) => {
       camera.aspect = window.innerWidth / window.innerHeight
       camera.updateProjectionMatrix()
       renderer.setSize(window.innerWidth, window.innerHeight)
@@ -471,18 +471,16 @@ object ThreeBoxes {
       renderer.domElement.classList.add("three-layer");
       document.body.appendChild(renderer.domElement);
 
-      def onWindowResize(e: Event) = {
-
+      val onWindowResize = (e: Event) => {
         windowHalfX = window.innerWidth / 2;
         windowHalfY = window.innerHeight / 2;
 
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
-
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
 
-      def onDocumentMouseMove(event: MouseEvent) = {
+      val onDocumentMouseMove = (event: MouseEvent) => {
         mouseX = (event.clientX - windowHalfX) * 10;
         mouseY = (event.clientY - windowHalfY) * 10;
       }

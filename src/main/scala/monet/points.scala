@@ -11,7 +11,7 @@ import org.scalajs.dom.MouseEvent
 import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
-import scala.collection.mutable.ArrayBuffer
+// import scala.collection.mutable.ArrayBuffer
 
 object ThreeExamplePoints {
   def raytest() = {
@@ -21,7 +21,7 @@ object ThreeExamplePoints {
 
     val π = math.Pi;
     val mouse = new Vector2();
-    val spheres = ArrayBuffer[Mesh]();
+    val spheres = scala.collection.mutable.ArrayBuffer[Mesh]();
     val threshold = 0.1
     val pointSize = 0.05
     val width = 80
@@ -191,7 +191,7 @@ object ThreeExamplePoints {
     val raycaster = new Raycaster();
     raycaster.params.Points.threshold = threshold;
 
-    def onWindowResize(e: Event) = {
+    val onWindowResize = (e: Event) => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -232,7 +232,7 @@ object ThreeExamplePoints {
       render();
     }
 
-    def onDocumentMouseMove(event: MouseEvent) = {
+    val onDocumentMouseMove = (event: MouseEvent) => {
       event.preventDefault();
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;

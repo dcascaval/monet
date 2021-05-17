@@ -157,8 +157,8 @@ object THREE extends js.Object {
 
   @js.native
   class Color extends js.Object {
-    def this(c: Color | String | Double) = this
-    def this(r: Double, g: Double, b: Double) = this
+    def this(c: Color | String | Double) = this()
+    def this(r: Double, g: Double, b: Double) = this()
     var r: Double = js.native
     var g: Double = js.native
     var b: Double = js.native
@@ -236,7 +236,7 @@ object THREE extends js.Object {
   class TubeGeometry extends BufferGeometry {}
   @js.native
   class WireframeGeometry extends BufferGeometry {
-    def this(vals: BufferGeometry) = this
+    def this(vals: BufferGeometry) = this()
   }
 
   //
@@ -254,7 +254,7 @@ object THREE extends js.Object {
   class LineBasicMaterial extends Material {}
   @js.native
   class PointsMaterial extends Material {
-    def this(parameters: PointsMaterialParameters) = this
+    def this(parameters: PointsMaterialParameters) = this()
   }
   @js.native
   class ShaderMaterial extends Material {}
@@ -266,11 +266,11 @@ object THREE extends js.Object {
   // MESH MATERIALS
   @js.native
   class MeshBasicMaterial extends Material {
-    def this(parameters: MeshBasicMaterialParameters) = this
+    def this(parameters: MeshBasicMaterialParameters) = this()
   }
   @js.native
   class MeshDepthMaterial extends Material {
-    def this(parameters: MeshDepthMaterialParameters) = this
+    def this(parameters: MeshDepthMaterialParameters) = this()
   }
   @js.native
   class MeshDistanceMaterial extends Material {}
@@ -280,7 +280,7 @@ object THREE extends js.Object {
   class MeshMatcapMaterial extends Material {}
   @js.native
   class MeshNormalMaterial extends Material {
-    def this(parameters: MeshNormalMaterialParameters) = this
+    def this(parameters: MeshNormalMaterialParameters) = this()
   }
 
   @js.native
@@ -323,12 +323,12 @@ object THREE extends js.Object {
     var normalized: Boolean = js.native
     var count: Int = js.native
     var version: Int = js.native // undocumented, sketchy
-    def this(values: NumArrayLike, itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this
+    def this(values: NumArrayLike, itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this()
   }
 
   @js.native
   class Uint32BufferAttribute extends BufferAttribute {
-    def this(values: js.Array[Int], itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this
+    def this(values: js.Array[Int], itemSize: Int, normalized: js.UndefOr[Boolean] = js.undefined) = this()
   }
 
   @js.native
