@@ -1,7 +1,7 @@
 enablePlugins(ScalaJSPlugin)
 
 name := "monet"
-scalaVersion := "3.0.0-RC3"
+scalaVersion := "3.0.0"
 
 // This is an application with a main method
 scalaJSUseMainModuleInitializer := true
