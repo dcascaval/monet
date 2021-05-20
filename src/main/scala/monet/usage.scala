@@ -11,12 +11,14 @@ import org.scalajs.dom.raw.Event
 import org.scalajs.dom.Element
 import org.scalajs.dom.MouseEvent
 import org.scalajs.dom.raw.SVGElement
-import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
 
 import Layers._
 import PixelLayerFunctions._
+
+extension [A,B](f: A => B)
+  def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
 
 object Main:
   import math.sqrt
@@ -25,49 +27,50 @@ object Main:
   def main(args: Array[String]): Unit =
     document.addEventListener(
       "DOMContentLoaded",
-      (e: Event) => ThreeBlend.blend
+      (e: Event) => render
     )
 
   def txt(text: String, classes: String*): Element =
-    val e = document.createElement("p").withClass("spaced")
+    val e = document.createElement("p")
     e.textContent = text
+    for (c <- classes) e.withClass(c)
     e
 
   // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
-  def render() =
+  def render =
     // threejs()
+
     given Document = document
     given SVGContext = new SVGContext()
 
     document.body.withClass("center")
     // TODO: text layer API, something better for specifying classes.
-    val p = txt("MONET", "spaced")
+
+    // val p = txt("MONET", "spaced")
 
     var w = dom.window.innerWidth
     var h = dom.window.innerHeight
 
-    val circPoints = Seq((250, 250, 0.1), (750, 750, 0.1))
-
     // TODO: port the reactive layer from mimic so we can just tweak the values directly.
-    // TODO: we want something like the VectorLayer API here, and not to be passing w,h in directly.
+    // TODO: we want something like the VectorLayer API here
     // TODO: add an API for clipping that gets compiled to clip-path properties on the canvas object
     // TODO: add an API for opacity
     val pixlayer = PixelLayer {
-      // Calculate the radius of the 10% svg element explicitly according to the spec:
-      // https://www.w3.org/TR/SVG/coords.html
-      val cx = 250.0; val cy = 250.0; val px = 0.1
-      val r = px * (sqrt(w * w + h * h) / sqrt(2.0))
+      val circPoints = Seq((250, 250, 0.1), (750, 750, 0.1))
+
+      val cx = 250.0; val cy = 250.0
+      val r = Percent(10)
 
       // Find the tangent from the border point to the circle.
       // TODO: add a web-assembly based 2d geometry library
       def targetPoint(sx: Double, sy: Double) =
-        val dx = sx - cx; val dy = sy - cy;
+        val dx = sx - cx; val dy = sy - cy
         val (dxr, dyr) = (-dy, dx)
-        val d = math.sqrt(dx * dx + dy * dy)
+        val d = sqrt(dx * dx + dy * dy)
         if (d >= r)
           val rho = r / d
           val ad = rho * rho
-          val bd = rho * math.sqrt(1 - rho * rho)
+          val bd = rho * sqrt(1 - rho * rho)
           val t1x = cx + ad * dx + bd * dxr
           val t1y = cy + ad * dy + bd * dyr
           val t2x = cx + ad * dx - bd * dxr
@@ -82,7 +85,7 @@ object Main:
         lineTo(tx, ty)
 
       for (t <- 0 until 100)
-        val dt = t.toDouble / 100.0
+        val dt = t / 100.0
         radialLine(dt * w, 0)
         radialLine(w, dt * h)
         radialLine((1.0 - dt) * w, h)
@@ -95,20 +98,32 @@ object Main:
 
     // TODO: figure out how extracting the objects for a cross-layer API might work --
     //       i.e. collect the created objects from the execution context.
-    val svg = VectorLayer {
+    val veclayer = VectorLayer {
       // TODO: get a better color API. strings can be colors, but so can... you know, more descriptive representations.
       val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
+
+      val mask = Mask("testMask", e =>
+        e.child(svg("circle")
+          .attr(
+            "cx" -> w/2,
+            "cy" -> h/2,
+            "r" -> "20%",
+            "fill" -> "black"))
+      )
+
       def mkcirc(x: Int, y: Int) =
         var circPt = Pt(x, y)
         // TODO: parametric percentages are a function of width.
-        Circle(circPt, "10%", g).draggable
+        Circle(circPt, "10%", g)
+          .draggable
+          .mask(mask)
 
       mkcirc(250, 250)
       mkcirc(750, 750)
     }
 
     // TODO: add three.js based 3d layers.
-    val layers = Seq(svg, pixlayer)
+    val layers : Seq[Layer] = Seq()
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
@@ -126,10 +141,10 @@ object Main:
       (_: Event) =>
         w = dom.window.innerWidth
         h = dom.window.innerHeight
-        layers.map(setLayerSize).map(drawLayer)
+        layers.map(setLayerSize |> drawLayer)
     )
 
-    document.body.appendChild(p)
+    // document.body.appendChild(p)
     layers.map(layer =>
       layers.map(setLayerSize).map(drawLayer)
       document.body.appendChild(layer.element)

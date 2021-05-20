@@ -33,21 +33,22 @@ object Circle:
 
 import Circle._
 
+def svg(tag: String) =
+  document.createElementNS(SVG.URI, tag)
+
 object SVG:
   val URI = "http://www.w3.org/2000/svg"
 
 case class SVG()(using doc: Document):
-  val dwg = document.createElementNS(SVG.URI, "svg").asInstanceOf[SVGElement]
+  val dwg = svg("svg").asInstanceOf[SVGElement]
   val defs: ArrayBuffer[Gradient] = ArrayBuffer()
-  val def_element = document.createElementNS(SVG.URI, "defs")
+  val def_element = svg("defs")
   dwg.appendChild(def_element)
 
   def apply(): SVGElement = dwg
   def addDefinition(gradient: Gradient): Unit =
     defs.append(gradient)
     def_element.appendChild(gradient.element)
-
-
 
 sealed trait Gradient:
   val element: Element
@@ -57,16 +58,27 @@ case class RadialGradient(name: String, stops: (Int, String)*)(using
 ) extends Gradient { self =>
   private val sortStops = stops.toVector.sortBy { case (a, _) => a }
 
-  val element = document.createElementNS(SVG.URI, "radialGradient")
+  val element = svg("radialGradient")
     .attr("id", "rg1")
     .attr("gradientUnits", "userSpaceOnUse")
   for ((percent, color) <- sortStops)
-    val stopElement = document.createElementNS(SVG.URI, "stop")
+    val stopElement = svg("stop")
       .attr("offset", percent)
       .attr("stop-color", color)
     element.appendChild(stopElement)
   ctx.current.addDefinition(self)
 }
+
+case class Mask(id: String, artwork: Element => Any)(using ctx: SVGContext):
+  val element = svg("mask")
+    .attr("id", id)
+    .child(
+       svg("rect")
+        .attr("fill" -> "white",
+              "width" -> "100%",
+              "height" -> "100%"))
+  artwork(element)
+  ctx.current.def_element.appendChild(element)
 
 sealed trait Layer { self =>
   def element: Element
@@ -86,6 +98,12 @@ extension [T <: Element](elt: T)
     elt
   def attr[Q](key: String, value: Q): T =
     elt.setAttributeNS(null, key, value.toString)
+    elt
+  def attr(mapping: (String,Any)*): T =
+    for ((k,v) <- mapping) attr(k,v)
+    elt
+  def child[Q <: Element](makeChild: => Q) =
+    elt.appendChild(makeChild)
     elt
   def draw()(using ctx: SVGContext) =
     ctx.current.dwg.appendChild(elt)
@@ -126,14 +144,18 @@ object Layers:
     layer
 
 
-case class Circle(val position: Pt, radius: String, fill: Gradient)(using ctx: SVGContext):
-  val circ = document.createElementNS(SVG.URI, "circle")
+case class Circle(val position: Pt, radius: String, fill: Gradient)(using ctx: SVGContext) { self =>
+  val circ = svg("circle")
   updateCircleCenter(circ, position)
   // TODO: Don't rely on a .draw() call for this, automatically add any created elements to an SVG context
   circ
     .attr("r", "10%")
     .attr("fill", "url(#rg1)")
     .draw()
+  def mask(m: Mask): Circle =
+    circ.attr("mask",s"url(#${m.id})")
+    self
+}
 
 given Draggable[Circle] with
   def basePoint(c: Circle) = c.position
@@ -182,9 +204,20 @@ sealed trait Draggable[T]:
 // will allow a custom DSL that is implemented by canvas without the user have to pass around
 // the relevant state objects.
 object PixelLayerFunctions:
+
+  // Calculate the radius of the svg element explicitly according to the spec:
+  // https://www.w3.org/TR/SVG/coords.html
+  def Percent(value: Double)(using ctx: CanvasRenderingContext2D) =
+    val w = dom.window.innerWidth
+    val h = dom.window.innerHeight
+    (value/100.0) * (math.sqrt(w * w + h * h) / math.sqrt(2.0))
+
   def moveTo(x : Double, y : Double)(using ctx: CanvasRenderingContext2D) = ctx.moveTo(x,y)
   def lineTo(x : Double, y : Double)(using ctx: CanvasRenderingContext2D) = ctx.lineTo(x,y)
   def lineWidth(w : Double)(using ctx: CanvasRenderingContext2D) = ctx.lineWidth = w
   def strokeStyle(style : String)(using ctx: CanvasRenderingContext2D) = ctx.strokeStyle = style
   def stroke()(using ctx: CanvasRenderingContext2D) = ctx.stroke()
 
+
+object VectorLayerFunctions:
+  def clip(using ctx: SVGContext)=  ()
