@@ -47,8 +47,8 @@ given (using DiffContext) : Operations[Diff] with
   def const(c: Double) = Diff(c)
   def zero: Diff = const(0)
   def v(n: Int, a: Double) = Var(n,a)
-  def neg(a: Diff): Diff = -a
 
+  def neg(a: Diff): Diff = registerChild(Sub(zero,a),a)
   def add(a: Diff, b: Diff): Diff = registerChild(Sum(a,b),a,b)
   def sub(a: Diff, b: Diff): Diff = registerChild(Sub(a,b),a,b)
   def mult(a: Diff, b: Diff): Diff = registerChild(Mul(a,b),a,b)
@@ -103,6 +103,30 @@ class DiffContext:
     for (current <- rooted)
       current._current_uses = current.uses.count(n => rooted contains n)
 
+  def update(mapping: (Diff,Double)*): Unit =
+    for ((node,newValue) <- mapping)
+      node.primal = newValue
+    val updatedNodes = mapping.map(_._1)
+    val seen = Set.from(updatedNodes)
+
+    // Todo: path cache
+    val order = ArrayBuffer[Diff]()
+    val permanent = Set[Diff]()
+    val temporary = Set[Diff]()
+
+    def visit(node: Diff) : Unit =
+      if (permanent contains node) return
+      if (temporary contains node) throw new IllegalArgumentException("Cyclical")
+      temporary.add(node)
+      node.uses.map(visit)
+      temporary.remove(node)
+      permanent.add(node)
+      order.append(node)
+
+    seen.map(visit)
+    for (node <- order.reverse)
+      if (!(seen contains node)) node.recompute
+
 
 class Diff (direct: => Double)(using ctx: DiffContext) { self =>
   val reverseDerivative: Double => Unit = (d: Double) => ()
@@ -149,7 +173,7 @@ def Mul(a : Diff, b: Diff)
 
 def Sub(a : Diff, b: Diff)
   (using o: Operations[Diff], ctx: DiffContext): Diff =
-  new Diff(a.primal * b.primal) {
+  new Diff(a.primal - b.primal) {
     override val reverseDerivative = (d: Double) =>
       a.gradient += d
       b.gradient -= d

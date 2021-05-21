@@ -123,6 +123,11 @@ object Main:
     }
 
     val tweakLayer = VectorLayer {
+
+      // Here's what a basic draggable interface looks like. We create
+      // a set of initial points, make a path out of them, and create a
+      // set of "vertices" which, when dragged, update the corresponding
+      // point in the array and cause the path to re-render.
       val pts = ArrayBuffer(Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
       val path = Path(pts)
 
@@ -133,9 +138,54 @@ object Main:
         )
         c.withClass("handle")
           .attr("stroke","black")
+
+      // However, that results an arbitrarily shaped path, not maintaining
+      // any of the programmatic constraints of the initial shape. Instead
+      // we will take a parameterized program and attempt to find the closest
+      // parameter value to our target.
+      given ctx: DiffContext = new DiffContext()
+      def square(base : Pt, r: Diff) : ArrayBuffer[(Diff,Diff)] =
+        ArrayBuffer(
+          (base.x,  base.y),
+          (base.x+r,base.y),
+          (base.x+r,base.y+r),
+          (base.x,  base.y+r))
+
+      val base = Pt(500,100)
+      val radius = 100.v
+      val sqPts = square(base,radius)
+      val concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
+      val sqPath = Path(concretePts)
+      for ((pt,i) <- concretePts.zipWithIndex)
+        // At this point our problem setup is nearly complete. We
+        // will minimize the distance between the point
+        // the target as the target is dragged. We do this by computing
+        // the derivative of the expression and and then minimizing
+        // along that line.
+        val c = Circle(pt,"5px","transparent").draggable((target : Pt) =>
+          val (dx,dy) = sqPts(i)
+          val distX = dx - target.x
+          val distY = dy - target.y
+          val dist = (distX*distX) + (distY*distY)
+          val Seq(dr) = dist.d(Seq(radius),0.001)
+          // println(s"Original: $pt -> Target:$target (dr = $dr)")
+
+          var iters = 0
+          var prevDist = dist.primal
+          ctx.update(radius -> (radius.primal - dr))
+          while (prevDist > dist.primal && iters < 100)
+            prevDist = dist.primal
+            ctx.update(radius -> (radius.primal - dr))
+            iters += 1
+          // println(s"updated in ${iters} iterations (r = ${radius.primal})")
+          sqPath.update(sqPts.map((a,b) => Pt(a.primal,b.primal)))
+        )
+        c.withClass("handle")
+          .attr("stroke","black")
     }
 
-    // TODO: add three.js based 3d layers.
+    // TODO: add three.js based 3d layers that handle the boilerplate currently present in
+    // the `boxes` (blend) and `points` (select) demos.
     val layers : Seq[Layer] = Seq(tweakLayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
