@@ -12,3 +12,8 @@ libraryDependencies += ("org.scala-js" %%% "scalajs-dom" % "1.1.0").cross(
 
 // Add support for the DOM in `run` and `test`
 jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv()
+
+scalacOptions ++= Seq(
+  "-feature",
+  "-language:implicitConversions"
+)

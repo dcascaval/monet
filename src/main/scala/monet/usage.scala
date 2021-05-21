@@ -122,8 +122,21 @@ object Main:
       mkcirc(750, 750)
     }
 
+    val tweakLayer = VectorLayer {
+      val pts = ArrayBuffer(Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
+      val path = Path(pts)
+
+      for ((pt,i) <- pts.zipWithIndex)
+        val c = Circle(pt,"5px","transparent").draggable((p : Pt) =>
+          pts(i) = p
+          path.update(pts)
+        )
+        c.withClass("handle")
+          .attr("stroke","black")
+    }
+
     // TODO: add three.js based 3d layers.
-    val layers : Seq[Layer] = Seq()
+    val layers : Seq[Layer] = Seq(tweakLayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 

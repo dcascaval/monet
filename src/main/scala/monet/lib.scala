@@ -14,6 +14,7 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
+import scala.compiletime.ops.string
 
 case class Pt(val x: Double, val y: Double):
   def +(other: Pt) =
@@ -24,6 +25,9 @@ case class Pt(val x: Double, val y: Double):
 
   def *(other: Double) =
     Pt(x * other, y * other)
+
+  def toSVG =
+    s"${x.toInt} ${y.toInt}"
 
 object Circle:
   def updateCircleCenter(element: Element, pt: Pt) =
@@ -51,6 +55,7 @@ case class SVG()(using doc: Document):
     def_element.appendChild(gradient.element)
 
 sealed trait Gradient:
+  val name : String
   val element: Element
 
 case class RadialGradient(name: String, stops: (Int, String)*)(using
@@ -59,7 +64,7 @@ case class RadialGradient(name: String, stops: (Int, String)*)(using
   private val sortStops = stops.toVector.sortBy { case (a, _) => a }
 
   val element = svg("radialGradient")
-    .attr("id", "rg1")
+    .attr("id", name)
     .attr("gradientUnits", "userSpaceOnUse")
   for ((percent, color) <- sortStops)
     val stopElement = svg("stop")
@@ -93,8 +98,9 @@ extension [T <: Element](elt: T)
   def withClass(cls: String) : T =
     elt.classList.add(cls)
     elt
-  def withStyle(value: String) =
-    elt.attr("style", value)
+  def withStyle(styles: (String,Any)*) =
+    val text = styles.map((k,v) => s"${k}:${v};").reduce(_+_)
+    elt.attr("style",text)
     elt
   def attr[Q](key: String, value: Q): T =
     elt.setAttributeNS(null, key, value.toString)
@@ -122,7 +128,7 @@ object Layers:
     val svg = SVG()
     svg()
       .withClass("vec-layer")
-      .withStyle("opacity:0.9;")
+      .withStyle("opacity" -> 0.9)
     ctx.push(svg)
     artwork
     new Layer { val element = svg() }
@@ -143,18 +149,41 @@ object Layers:
     layer.draw(w, h)
     layer
 
+given Conversion[Circle, Element] with
+  def apply(p: Circle): Element = p.circ
 
-case class Circle(val position: Pt, radius: String, fill: Gradient)(using ctx: SVGContext) { self =>
+case class Circle(val position: Pt, radius: String, fill: String | Gradient)(using ctx: SVGContext) { self =>
   val circ = svg("circle")
   updateCircleCenter(circ, position)
   // TODO: Don't rely on a .draw() call for this, automatically add any created elements to an SVG context
   circ
-    .attr("r", "10%")
-    .attr("fill", "url(#rg1)")
+    .attr("r", radius)
+    .attr("fill", fill match
+      case style : String => style
+      case grad : Gradient => s"url(#${grad.name})")
     .draw()
   def mask(m: Mask): Circle =
     circ.attr("mask",s"url(#${m.id})")
     self
+}
+
+given Conversion[Path, Element] with
+  def apply(p: Path): Element = p.path
+
+case class Path(var points: ArrayBuffer[Pt])(using ctx: SVGContext) { self =>
+  val path = svg("path")
+
+  def update(newPoints: ArrayBuffer[Pt]) =
+    points = newPoints
+    if (newPoints.length > 0)
+      var pathString = s"M ${newPoints(0).toSVG}"
+      var rest = newPoints.drop(1).map(p => s"L ${p.toSVG}").reduce(_+_)
+      path
+        .attr("d",pathString+rest)
+        .attr("fill","black")
+
+  update(points)
+  path.draw()
 }
 
 given Draggable[Circle] with
@@ -163,13 +192,14 @@ given Draggable[Circle] with
   def render(e: Element, loc: Pt): Unit = updateCircleCenter(e, loc)
 
 extension [A](a: A)(using drg: Draggable[A])
-  def draggable = drg.draggable(a)
+  def draggable = drg.draggable(a, (p) => ())
+  def draggable(onChange: Pt => Unit) = drg.draggable(a, onChange)
 
 sealed trait Draggable[T]:
   def basePoint(geometry: T): Pt
   def element(geometry: T): Element
   def render(e: Element, loc: Pt): Unit
-  def draggable(geometry: T): T =
+  def draggable(geometry: T, onChange: Pt => Unit): T =
     var controlPt = basePoint(geometry)
     var originalPt = basePoint(geometry)
     var elt = element(geometry)
@@ -182,6 +212,7 @@ sealed trait Draggable[T]:
       val curClick = Pt(e.clientX, e.clientY)
       controlPt = originalPt + (curClick - originalClick)
       render(elt, controlPt)
+      onChange(controlPt)
 
     var upListener: js.Function1[MouseEvent, Unit] = null
     upListener = e => // Clean up

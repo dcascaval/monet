@@ -48,3 +48,7 @@ body {
     rgb(0, 0, 0) 100%
   );
 }
+
+.handle:hover {
+  fill: red !important;
+}
