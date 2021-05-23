@@ -129,12 +129,12 @@ object Main:
       // set of "vertices" which, when dragged, update the corresponding
       // point in the array and cause the path to re-render.
       val pts = ArrayBuffer(Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
-      val path = Path(pts)
+      val path = Path(pts.toSeq)
 
       for ((pt,i) <- pts.zipWithIndex)
         val c = Circle(pt,"5px","transparent").draggable((p : Pt) =>
           pts(i) = p
-          path.update(pts)
+          path.update(pts.toSeq)
         )
         c.withClass("handle")
           .attr("stroke","black")
@@ -144,28 +144,29 @@ object Main:
       // we will take a parameterized program and attempt to find the closest
       // parameter value to our target.
       given ctx: DiffContext = new DiffContext()
-      def square(base : Pt, r: Diff) : ArrayBuffer[(Diff,Diff)] =
-        ArrayBuffer(
-          (base.x,  base.y),
-          (base.x+r,base.y),
-          (base.x+r,base.y+r),
-          (base.x,  base.y+r))
+      def square(base : Pt, r: Diff) : Seq[DiffPt] =
+        Seq(
+          DiffPt(base.x,  base.y),
+          DiffPt(base.x+r,base.y),
+          DiffPt(base.x+r,base.y+r),
+          DiffPt(base.x,  base.y+r))
 
       val base = Pt(500,100)
       val radius = 100.v
       val sqPts = square(base,radius)
-      var concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
+      var concretePts = sqPts.map(_.toPoint)
       val sqPath = Path(concretePts)
+      sqPath.attr("fill","black")
 
-      var circles : ArrayBuffer[Circle] = null
-      circles = concretePts.zipWithIndex.map( (pt,i) =>
+      var circles : Seq[Circle] = null
+      circles = concretePts.zipWithIndex.map((pt,i) =>
         // At this point our problem setup is nearly complete. We
         // will minimize the squared distance between the point
         // the target as the target is dragged. We do this by computing
         // the derivative of the expression and and then minimizing
         // along that line.
         val c = Circle(pt,"5px","transparent").draggable((target : Pt) =>
-          val (dx, dy) = sqPts(i)
+          val DiffPt(dx, dy) = sqPts(i)
           val (distX, distY) = (dx - target.x, dy - target.y)
           val dist = (distX * distX) + (distY * distY)
           ctx.prepare(Seq(dist))
@@ -189,7 +190,7 @@ object Main:
             iters += 1
 
           // Update the path position and the vertex positions
-          concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
+          concretePts = sqPts.map(_.toPoint)
           sqPath.update(concretePts)
           for ((newPt,j) <- concretePts.zipWithIndex if j != i)
             circles(j).setPosition(newPt)
@@ -199,10 +200,34 @@ object Main:
         c
       )
 
-      // Now we need a way of programmatically generating the above function.
-      // Each shape should:
-      // - Expose the vertices it uses for control (sqPts)
-      // -
+      // Now we need a way of programmatically generating the above function. One way is to say, this is always
+      // the optimization strategy we're going to use, it's
+      // going to be equivalent for each point. So, rewriting:
+
+      val r2 = 150.v
+      val base2 = Pt(100,300)
+      // TODO: MAKE THIS TYPESAFE OVER HOMOGENOUS TUPLES
+      val box2Path = Path(Seq())
+      val execute = (ps: Seq[Diff]) => square(base2, ps(0) /* r */)
+      Program(Seq(r2),execute,(_,pts) => box2Path.update(pts))
+      box2Path.attr("fill","#228B22")
+
+      // Great, this works. Let's try a circle?
+      // NB: works great with radius, somewhat poorly with theta
+      val base3 = Pt(500, 450)
+      val circPath = Circle(base3,"100px","#FF2288").draggable
+      val t = 0.25.v
+      val r = 100
+      val circleFn = (ps: Seq[Diff]) =>
+        val Seq(t) = ps
+        val iters = 30
+        (0 until iters).map(i =>
+          val p = i.toDouble / iters
+          val theta = t + p * (2*math.Pi)
+          DiffPt(circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
+        )
+      val p = Program(Seq(t),circleFn,(_,_)=>())
+      p.SCALE_GRADIENT = 100000
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in

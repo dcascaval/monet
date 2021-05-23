@@ -7,12 +7,15 @@ import scala.collection.mutable.Set
 trait Operations[T]:
   def const(c: Double): T
   def zero: T
+  def lower(t : T) : Double
   def v(n: Int, a: Double): T
   def neg(a: T): T
   def add(a: T, b: T): T
   def sub(a: T, b: T): T
   def mult(a: T, b: T): T
   def div(a: T, b: T): T
+  def sin(a: T): T
+  def cos(a: T): T
 
 extension [T](a: T)(using o: Operations[T])
   def +(b: T) = o.add(a,b)
@@ -24,6 +27,8 @@ extension [T](a: T)(using o: Operations[T])
   def /(b: T) = o.div(a,b)
   def /(b: Double) = o.div(a,o.const(b))
   def unary_- = o.sub(o.zero, a)
+  def sin = o.sin(a)
+  def cos = o.cos(a)
 
 extension [T](a: Double)(using o: Operations[T], c : DiffContext)
   def v = o.v(c.freshTemp, a)
@@ -47,12 +52,28 @@ given (using DiffContext) : Operations[Diff] with
   def const(c: Double) = Diff(c)
   def zero: Diff = const(0)
   def v(n: Int, a: Double) = Var(n,a)
+  def lower(t: Diff) = t.primal
 
   def neg(a: Diff): Diff = registerChild(Sub(zero,a),a)
   def add(a: Diff, b: Diff): Diff = registerChild(Sum(a,b),a,b)
   def sub(a: Diff, b: Diff): Diff = registerChild(Sub(a,b),a,b)
   def mult(a: Diff, b: Diff): Diff = registerChild(Mul(a,b),a,b)
   def div(a: Diff, b: Diff): Diff = registerChild(Div(a,b),a,b)
+  def sin(a: Diff): Diff = registerChild(Sin(a),a)
+  def cos(a: Diff): Diff = registerChild(Cos(a),a)
+
+
+// given Operations[Double] with
+//   def const(c: Double) = c
+//   def zero: Double = const(0)
+//   def v(n: Int, a: Double) = a
+//   def lower(t: Double) = t
+//   def neg(a: Double): Double = -a
+//   def add(a: Double, b: Double): Double = a+b
+//   def sub(a: Double, b: Double): Double = a-b
+//   def mult(a: Double, b: Double): Double = a*b
+//   def div(a: Double, b: Double): Double = a*b
+
 
 class DiffContext:
   var currentID = 0
@@ -187,6 +208,21 @@ def Div(a : Diff, b: Diff)
       a.gradient += (b.primal * d) / gx2
       b.gradient -= (a.primal * d) / gx2
   }
+
+def Sin(a : Diff)
+  (using o: Operations[Diff], ctx: DiffContext): Diff =
+  new Diff(math.sin(a.primal)) {
+    override val reverseDerivative = (d: Double) =>
+      a.gradient += d * math.cos(d.primal)
+  }
+
+def Cos(a : Diff)
+  (using o: Operations[Diff], ctx: DiffContext): Diff =
+  new Diff(math.cos(a.primal)) {
+    override val reverseDerivative = (d: Double) =>
+      a.gradient -= d * math.sin(d.primal)
+  }
+
 
 def parameters(ps: Seq[Double])(using DiffContext) =
   ps.map(p => p.v)
