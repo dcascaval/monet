@@ -29,13 +29,11 @@ case class Pt(val x: Double, val y: Double):
   def toSVG =
     s"${x.toInt} ${y.toInt}"
 
-object Circle:
-  def updateCircleCenter(element: Element, pt: Pt) =
-    element
-      .attr("cx",pt.x.toInt)
-      .attr("cy",pt.y.toInt)
 
-import Circle._
+def updateCircleCenter(element: Element, pt: Pt) =
+  element
+    .attr("cx",pt.x.toInt)
+    .attr("cy",pt.y.toInt)
 
 def svg(tag: String) =
   document.createElementNS(SVG.URI, tag)
@@ -152,7 +150,7 @@ object Layers:
 given Conversion[Circle, Element] with
   def apply(p: Circle): Element = p.circ
 
-case class Circle(val position: Pt, radius: String, fill: String | Gradient)(using ctx: SVGContext) { self =>
+case class Circle(var position: Pt, radius: String, fill: String | Gradient)(using ctx: SVGContext) { self =>
   val circ = svg("circle")
   updateCircleCenter(circ, position)
   // TODO: Don't rely on a .draw() call for this, automatically add any created elements to an SVG context
@@ -165,6 +163,9 @@ case class Circle(val position: Pt, radius: String, fill: String | Gradient)(usi
   def mask(m: Mask): Circle =
     circ.attr("mask",s"url(#${m.id})")
     self
+  def setPosition(p : Pt) =
+    updateCircleCenter(circ, p)
+    position = p
 }
 
 given Conversion[Path, Element] with
@@ -200,17 +201,16 @@ sealed trait Draggable[T]:
   def element(geometry: T): Element
   def render(e: Element, loc: Pt): Unit
   def draggable(geometry: T, onChange: Pt => Unit): T =
-    var controlPt = basePoint(geometry)
-    var originalPt = basePoint(geometry)
-    var elt = element(geometry)
+    var originalPt : Pt = Pt(0, 0)
     var originalClick = Pt(0, 0)
+    var elt = element(geometry)
 
     val doc = document
     // Needs to be explicitly typed otherwise the listener never moves
     // https://stackoverflow.com/questions/42748852/remove-event-listener-in-scala-js
     val moveListener: js.Function1[MouseEvent, Unit] = e =>
       val curClick = Pt(e.clientX, e.clientY)
-      controlPt = originalPt + (curClick - originalClick)
+      val controlPt = originalPt + (curClick - originalClick)
       render(elt, controlPt)
       onChange(controlPt)
 
@@ -222,7 +222,7 @@ sealed trait Draggable[T]:
     elt.addEventListener( // Click on the element
       "mousedown",
       (e: MouseEvent) =>
-        originalPt = controlPt
+        originalPt = basePoint(geometry)
         originalClick = Pt(e.clientX, e.clientY)
         // Listen for it in the whole document.
         doc.addEventListener("mousemove", moveListener)

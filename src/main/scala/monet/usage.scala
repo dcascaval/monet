@@ -154,34 +154,55 @@ object Main:
       val base = Pt(500,100)
       val radius = 100.v
       val sqPts = square(base,radius)
-      val concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
+      var concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
       val sqPath = Path(concretePts)
-      for ((pt,i) <- concretePts.zipWithIndex)
+
+      var circles : ArrayBuffer[Circle] = null
+      circles = concretePts.zipWithIndex.map( (pt,i) =>
         // At this point our problem setup is nearly complete. We
-        // will minimize the distance between the point
+        // will minimize the squared distance between the point
         // the target as the target is dragged. We do this by computing
         // the derivative of the expression and and then minimizing
         // along that line.
         val c = Circle(pt,"5px","transparent").draggable((target : Pt) =>
-          val (dx,dy) = sqPts(i)
-          val distX = dx - target.x
-          val distY = dy - target.y
-          val dist = (distX*distX) + (distY*distY)
-          val Seq(dr) = dist.d(Seq(radius),0.001)
-          // println(s"Original: $pt -> Target:$target (dr = $dr)")
-
-          var iters = 0
+          val (dx, dy) = sqPts(i)
+          val (distX, distY) = (dx - target.x, dy - target.y)
+          val dist = (distX * distX) + (distY * distY)
+          ctx.prepare(Seq(dist))
           var prevDist = dist.primal
+
+          // // One-shot linear approximation. This tends to fail dramatically
+          // // when the target is not in the feasible space. This is because
+          // // we are constructing our linear approx. as if the lower bound
+          // // on the error was ~zero, which is untrue in that case.
+          // val Seq(dr) = dist.d(Seq(radius), 1.0)
+          // var newRadius = radius.primal - (prevDist / dr)
+          // ctx.update(radius -> newRadius)
+
+          // Alternatively iterate to find the appropriate new radius. (a "10-shot") constant approximation, which seems to work quite well.
+          val Seq(dr) = dist.d(Seq(radius), 0.1)
+          var iters = 0
           ctx.update(radius -> (radius.primal - dr))
-          while (prevDist > dist.primal && iters < 100)
+          while (prevDist > dist.primal && iters < 10)
             prevDist = dist.primal
             ctx.update(radius -> (radius.primal - dr))
             iters += 1
-          // println(s"updated in ${iters} iterations (r = ${radius.primal})")
-          sqPath.update(sqPts.map((a,b) => Pt(a.primal,b.primal)))
+
+          // Update the path position and the vertex positions
+          concretePts = sqPts.map((a,b) => Pt(a.primal,b.primal))
+          sqPath.update(concretePts)
+          for ((newPt,j) <- concretePts.zipWithIndex if j != i)
+            circles(j).setPosition(newPt)
         )
         c.withClass("handle")
-          .attr("stroke","black")
+         .attr("stroke","black")
+        c
+      )
+
+      // Now we need a way of programmatically generating the above function.
+      // Each shape should:
+      // - Expose the vertices it uses for control (sqPts)
+      // -
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in
