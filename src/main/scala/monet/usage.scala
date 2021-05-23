@@ -4,6 +4,7 @@ import scala.scalajs.js
 import org.scalajs.dom
 import org.scalajs.dom.document
 
+import typings.nlopt._
 import org.scalajs.dom.raw.HTMLElement
 import org.scalajs.dom.raw.HTMLCanvasElement
 import org.scalajs.dom.raw.CanvasRenderingContext2D
@@ -27,7 +28,7 @@ object Main:
   def main(args: Array[String]): Unit =
     document.addEventListener(
       "DOMContentLoaded",
-      (e: Event) => render
+      (e: Event) => nlopt.ready.`then`((_) => render)
     )
 
   def txt(text: String, classes: String*): Element =
@@ -39,24 +40,6 @@ object Main:
   // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
   def render =
     // threejs()
-
-    // Test using NLOPT
-    {
-      import typings.nlopt._
-      println(nlopt.ready)
-      nlopt.ready.`then`((_) =>
-        println("Ready")
-        val opt = new nlopt.Optimize(nlopt.Algorithm.LD_SLSQP, 2)
-        opt.setMinObjective((x, grad) =>
-          grad(0) = 0
-          grad(1) = 0.5 / math.sqrt(x(1))
-          math.sqrt(x(1))
-        , 1e-4)
-        val res = opt.optimize(js.Array(1, 6))
-        println(js.JSON.stringify(res))
-        nlopt.GC.flush()
-      )
-    }
 
     given Document = document
     given SVGContext = new SVGContext()
@@ -190,15 +173,7 @@ object Main:
           ctx.prepare(Seq(dist))
           var prevDist = dist.primal
 
-          // // One-shot linear approximation. This tends to fail dramatically
-          // // when the target is not in the feasible space. This is because
-          // // we are constructing our linear approx. as if the lower bound
-          // // on the error was ~zero, which is untrue in that case.
-          // val Seq(dr) = dist.d(Seq(radius), 1.0)
-          // var newRadius = radius.primal - (prevDist / dr)
-          // ctx.update(radius -> newRadius)
-
-          // Alternatively iterate to find the appropriate new radius. (a "10-shot") constant approximation, which seems to work quite well.
+          // Alternatively iterate to find the appropriate new radius. (a "10-shot") constant approximation, which seems to work quite well in simple cases.
           val Seq(dr) = dist.d(Seq(radius), 0.1)
           var iters = 0
           ctx.update(radius -> (radius.primal - dr))
@@ -234,18 +209,19 @@ object Main:
       // NB: works great with radius, somewhat poorly with theta
       val base3 = Pt(500, 450)
       val circPath = Circle(base3,"100px","#FF2288").draggable
-      val t = 0.25.v
-      val r = 100
+      val (r,t) = (100.v, 0.v)
       val circleFn = (ps: Seq[Diff]) =>
-        val Seq(t) = ps
-        val iters = 30
+        val Seq(r,t) = ps
+        // println(s"${r.primal} ${t.primal}")
+        val iters = 12
         (0 until iters).map(i =>
           val p = i.toDouble / iters
-          val theta = t + p * (2*math.Pi)
+          val theta = (t/360.0) + p * (2*math.Pi)
           DiffPt(circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
         )
-      val p = Program(Seq(t),circleFn,(_,_)=>())
-      p.SCALE_GRADIENT = 100000
+      val p = Program(Seq(r,t),circleFn,(ps,_)=>(
+        circPath.attr("r",ps(0).primal.toInt)
+      ))
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in

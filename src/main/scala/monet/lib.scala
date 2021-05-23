@@ -234,21 +234,12 @@ case class Program(
       ctx.prepare(Seq(dist))
       var prevDist = dist.primal
 
-      // Alternatively iterate to find the appropriate new radius. (a "10-shot") constant
-      // approximation, which seems to work quite well unless very non-linear functions
-      // (e.g trig) are involved.
-      // TODO: it should be very possible to integrate a WASM-based version of SLSQP here, at which point we'll probably have to adjust the functions in `autodiff` to generate some version of our gradient function that wasm can work with
-      val gradient = dist.d(parameters, 1.0 / SCALE_GRADIENT)
-      var iters = 0
-      ctx.update(
-        parameters.zip(gradient).map((p,g) => p -> (p.primal - g)):_*
+      // We use a WASM-based version of SLSQP from the `nlopt-js` package
+      val newParams = optimize(parameters.map(_.primal),
+        (newParams) => { ctx.update(parameters, newParams); dist.primal },
+        (newParams) => { ctx.update(parameters, newParams); dist.d(parameters, 1.0) }
       )
-      while (prevDist > dist.primal && iters < MAX_ITERS)
-        prevDist = dist.primal
-        ctx.update(
-          parameters.zip(gradient).map((p,g) => p -> (p.primal - g)):_*
-        )
-        iters += 1
+      ctx.update(parameters, newParams)
 
       // Update the path position and the vertex positions
       diffPts = execute(parameters)

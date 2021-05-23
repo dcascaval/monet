@@ -62,18 +62,23 @@ given (using DiffContext) : Operations[Diff] with
   def sin(a: Diff): Diff = registerChild(Sin(a),a)
   def cos(a: Diff): Diff = registerChild(Cos(a),a)
 
+// Plumbing (Key into a hashmap using an arbitrary order of multiple keys)
+class CacheKey(val keys: Seq[Diff]):
+  // Todo (performance): make this work for keys in any order
+  override def equals(obj: Any): Boolean =
+    if (obj.isInstanceOf[CacheKey])
+      val otherKey = obj.asInstanceOf[CacheKey]
+      (otherKey.keys.size == keys.size) &&
+      !otherKey.keys.zip(keys).exists((a,b) => a != b)
+    else
+      false
 
-// given Operations[Double] with
-//   def const(c: Double) = c
-//   def zero: Double = const(0)
-//   def v(n: Int, a: Double) = a
-//   def lower(t: Double) = t
-//   def neg(a: Double): Double = -a
-//   def add(a: Double, b: Double): Double = a+b
-//   def sub(a: Double, b: Double): Double = a-b
-//   def mult(a: Double, b: Double): Double = a*b
-//   def div(a: Double, b: Double): Double = a*b
-
+  // This already works for keys in any order
+  override def hashCode(): Int =
+    var result = 0
+    for (key <- keys)
+      result += key.hashCode()
+    result
 
 class DiffContext:
   var currentID = 0
@@ -106,11 +111,17 @@ class DiffContext:
     targets.map(visit)
     parameters.map(_.gradient)
 
+  // The generation mechanism keeps us from performing excess recomputation
+  // for nodes that are not used in the gradient evaluation.
+  var currentGeneration = 0
+
   // In the current computation graph, compute the number of uses of each
   // node that go into computing a given set of targets. This automatically
   // filters out uses that don't end up being used, since their adjoint will
   // not be propagated up.
   def prepare(targets: Seq[Diff]): Unit =
+    topologicalCache.clear
+    currentGeneration += 1
     val rooted = Set.from(targets)
     val nextList = Stack.from(rooted)
 
@@ -123,31 +134,49 @@ class DiffContext:
 
     for (current <- rooted)
       current._current_uses = current.uses.count(n => rooted contains n)
+      current._generation = currentGeneration
 
-  def update(mapping: (Diff,Double)*): Unit =
-    for ((node,newValue) <- mapping)
+  var topologicalCache = scala.collection.mutable.Map[CacheKey, Seq[Diff]]()
+
+  def recompute(order : Seq[Diff], seen: Set[Diff]) =
+    for (node <- order if !(seen contains node))
+      node.recompute
+
+  // def update(mapping: (Dif))
+  import scala.scalajs.js
+
+  def update(parameters: Seq[Diff], newValues: js.Array[Double]): Unit =
+    for ((node,newValue) <- parameters.zip(newValues))
       node.primal = newValue
-    val updatedNodes = mapping.map(_._1)
+    val updatedNodes = parameters
     val seen = Set.from(updatedNodes)
 
-    // Todo: path cache
-    val order = ArrayBuffer[Diff]()
-    val permanent = Set[Diff]()
-    val temporary = Set[Diff]()
+    topologicalCache.get(CacheKey(updatedNodes)) match
+      case Some(ordering) => recompute(ordering, seen)
+      case None =>
+        val order = ArrayBuffer[Diff]()
+        val permanent = Set[Diff]()
+        val temporary = Set[Diff]()
 
-    def visit(node: Diff) : Unit =
-      if (permanent contains node) return
-      if (temporary contains node) throw new IllegalArgumentException("Cyclical")
-      temporary.add(node)
-      node.uses.map(visit)
-      temporary.remove(node)
-      permanent.add(node)
-      order.append(node)
+        def visit(node: Diff) : Unit =
+          if (!node.isRooted) return
+          if (permanent contains node) return
+          if (temporary contains node) throw new IllegalArgumentException("Cyclical")
+          temporary.add(node)
+          node.uses.map(visit)
+          temporary.remove(node)
+          permanent.add(node)
+          order.append(node)
 
-    seen.map(visit)
-    for (node <- order.reverse)
-      if (!(seen contains node)) node.recompute
+        seen.map(visit)
+        val recomputeOrder = order.reverse.toSeq
+        topologicalCache.put(CacheKey(updatedNodes),recomputeOrder)
+        recompute(recomputeOrder, seen)
 
+  def update(mapping: (Diff,Double)*) : Unit =
+    import js.JSConverters._
+    val (params, values) = mapping.unzip
+    update(params, values.toJSArray)
 
 class Diff (direct: => Double)(using ctx: DiffContext) { self =>
   val reverseDerivative: Double => Unit = (d: Double) => ()
@@ -156,6 +185,8 @@ class Diff (direct: => Double)(using ctx: DiffContext) { self =>
   var gradient = 0.0
   val uses = ArrayBuffer[Diff]()
   val parents = ArrayBuffer[Diff]()
+
+  var _generation = -1
   var _current_uses = 0
   var _visits_this_evaluation = 0
 
@@ -165,6 +196,8 @@ class Diff (direct: => Double)(using ctx: DiffContext) { self =>
     uses += dependent
   def parent(p : Diff) =
     parents += p
+  def isRooted : Boolean =
+    _generation == ctx.currentGeneration
 
   def d(parameters: Seq[Diff], step: Double = 1.0) =
     ctx.d(parameters, Seq(self), step)

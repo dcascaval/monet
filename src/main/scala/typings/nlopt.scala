@@ -14,7 +14,9 @@ object nlopt extends js.Object:
 
   @js.native
   class NLOptResult extends js.Object:
-    val x : js.Array[Double] = js.native
+    val x : js.Array[Double] = js.native  // Minimized parameters
+    val success: Boolean = js.native
+    val value: Double = js.native         // Function value at minimum
 
   @js.native
   object Algorithm extends js.Object:
