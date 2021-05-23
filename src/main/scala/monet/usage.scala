@@ -40,6 +40,24 @@ object Main:
   def render =
     // threejs()
 
+    // Test using NLOPT
+    {
+      import typings.nlopt._
+      println(nlopt.ready)
+      nlopt.ready.`then`((_) =>
+        println("Ready")
+        val opt = new nlopt.Optimize(nlopt.Algorithm.LD_SLSQP, 2)
+        opt.setMinObjective((x, grad) =>
+          grad(0) = 0
+          grad(1) = 0.5 / math.sqrt(x(1))
+          math.sqrt(x(1))
+        , 1e-4)
+        val res = opt.optimize(js.Array(1, 6))
+        println(js.JSON.stringify(res))
+        nlopt.GC.flush()
+      )
+    }
+
     given Document = document
     given SVGContext = new SVGContext()
 

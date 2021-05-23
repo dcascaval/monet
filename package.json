@@ -1,7 +1,19 @@
 {
   "dependencies": {
     "@types/three": "^0.125.1",
+    "browserify-fs": "^1.0.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.0",
     "esbuild": "^0.8.44",
-    "three": "^0.125.2"
+    "nlopt-js": "^0.1.1",
+    "path-browserify": "^1.0.1",
+    "stream-browserify": "^3.0.0",
+    "three": "^0.125.2",
+    "util": "^0.12.3"
+  },
+  "browser": {
+    "fs": false,
+    "path": false,
+    "crypto": false
   }
 }
