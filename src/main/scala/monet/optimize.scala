@@ -31,7 +31,7 @@ def optimize(
       val _grad = g(x)
       for ((g,i) <- _grad.zipWithIndex)
         grad(i) = g
-        g_evals += 1
+      g_evals += 1
     result
   , 1e-3)
 

@@ -21,6 +21,16 @@ import PixelLayerFunctions._
 extension [A,B](f: A => B)
   def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
 
+
+// These have to exist for the arity-1 case of `Program` to work, otherwise
+// the Scala compiler crashes -- unclear why, as T is not a subtype of Tuple
+given soloTupler[A] : Conversion[A,Tuple1[A]] =
+  a => Tuple1(a)
+
+given tupler[A,B] : Conversion[Function1[A,B],Function1[Tuple1[A],B]] =
+  (f) => (k: Tuple1[A]) => f(k._1)
+
+
 object Main:
   import math.sqrt
   import PixelLayerFunctions._
@@ -154,7 +164,7 @@ object Main:
 
       val base = Pt(500,100)
       val radius = 100.v
-      val sqPts = square(base,radius)
+      var sqPts = square(base,radius)
       var concretePts = sqPts.map(_.toPoint)
       val sqPath = Path(concretePts)
       sqPath.attr("fill","black")
@@ -183,6 +193,7 @@ object Main:
             iters += 1
 
           // Update the path position and the vertex positions
+          sqPts = square(base, radius)
           concretePts = sqPts.map(_.toPoint)
           sqPath.update(concretePts)
           for ((newPt,j) <- concretePts.zipWithIndex if j != i)
@@ -197,31 +208,41 @@ object Main:
       // the optimization strategy we're going to use, it's
       // going to be equivalent for each point. So, rewriting:
 
-      val r2 = 150.v
+      val r2 = (150.v)
       val base2 = Pt(100,300)
       // TODO: MAKE THIS TYPESAFE OVER HOMOGENOUS TUPLES
       val box2Path = Path(Seq())
-      val execute = (ps: Seq[Diff]) => square(base2, ps(0) /* r */)
-      Program(Seq(r2),execute,(_,pts) => box2Path.update(pts))
+
+      // arity 1
+      val execute = (r: Diff) => square(base2, r)
+      Program(r2, execute, (_,pts) => box2Path.update(pts))
       box2Path.attr("fill","#228B22")
+
+      // // arity 2
+      // val execute = (r: Diff, _ : Diff) => square(base2, r)
+      // Program((r2,0.v), execute.tupled, (_,pts) => box2Path.update(pts))
+      // box2Path.attr("fill","#228B22")
+
+
 
       // Great, this works. Let's try a circle?
       // NB: works great with radius, somewhat poorly with theta
       val base3 = Pt(500, 450)
       val circPath = Circle(base3,"100px","#FF2288").draggable
       val (r,t) = (100.v, 0.v)
-      val circleFn = (ps: Seq[Diff]) =>
-        val Seq(r,t) = ps
-        // println(s"${r.primal} ${t.primal}")
+
+      val circleFn = (r: Diff, t: Diff) =>
         val iters = 12
         (0 until iters).map(i =>
           val p = i.toDouble / iters
           val theta = (t/360.0) + p * (2*math.Pi)
           DiffPt(circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
         )
-      val p = Program(Seq(r,t),circleFn,(ps,_)=>(
-        circPath.attr("r",ps(0).primal.toInt)
-      ))
+
+      val p = Program((r,t), circleFn.tupled, { case ((r,_), _) =>
+        circPath.attr("r",r.primal.toInt)
+      })
+
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in

@@ -213,11 +213,18 @@ case class Path(var points: Seq[Pt])(using ctx: SVGContext) { self =>
 // This avoids duplicating work in the case where the path _is_ the control points,
 // and allows for rendering to multiple paths etc. It is up to the author of the
 // path function what level of bidirectionality they want to expose.
-case class Program(
-  parameters: Seq[Diff],
-  execute : Seq[Diff] => Seq[DiffPt],
-  makePath: (Seq[Diff], Seq[Pt]) => Unit)
-(using ctx: DiffContext, svg: SVGContext) { self =>
+
+
+type Homogenous[H, T <: Tuple] = T match
+  case EmptyTuple => DummyImplicit
+  case H *: t => Homogenous[H, t]
+  case _ => Nothing
+
+case class Program[Params <: Tuple](
+  parameters: Params,
+  execute : Params => Seq[DiffPt],
+  makePath: (Params, Seq[Pt]) => Unit)
+(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) { self =>
   var MAX_ITERS = 10
   var SCALE_GRADIENT = MAX_ITERS
 
@@ -234,12 +241,15 @@ case class Program(
       ctx.prepare(Seq(dist))
       var prevDist = dist.primal
 
+      // We know this is safe because of the homogenous parameter
+      val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
+
       // We use a WASM-based version of SLSQP from the `nlopt-js` package
-      val newParams = optimize(parameters.map(_.primal),
-        (newParams) => { ctx.update(parameters, newParams); dist.primal },
-        (newParams) => { ctx.update(parameters, newParams); dist.d(parameters, 1.0) }
+      val newParams = optimize(ps.map(_.primal),
+        (newParams) => { ctx.update(ps, newParams); dist.primal },
+        (newParams) => { ctx.update(ps, newParams); dist.d(ps, 1.0) }
       )
-      ctx.update(parameters, newParams)
+      ctx.update(ps, newParams)
 
       // Update the path position and the vertex positions
       diffPts = execute(parameters)
@@ -319,3 +329,23 @@ object PixelLayerFunctions:
 
 object VectorLayerFunctions:
   def clip(using ctx: SVGContext)=  ()
+
+
+object TestArity:
+  given DiffContext = new DiffContext()
+
+  def overFn[T <: Tuple](fn: T => Diff, t: T) =
+    fn(t)
+
+  def f1(a : Diff, b: Diff) =
+    a + b
+  val f4 = (a: Diff, b: Diff) => a+b
+
+  val f2 = (10.v, 20.v)
+
+  def f3(args: (Diff,Diff,Diff)) =
+    val (a,b,c) = args
+    a + b + c
+
+  overFn(f1.tupled,f2)
+  overFn(f3,(1.v,2.v,3.v))
