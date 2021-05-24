@@ -134,6 +134,7 @@ object Main:
     }
 
     val tweakLayer = VectorLayer {
+      val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
 
       // Here's what a basic draggable interface looks like. We create
       // a set of initial points, make a path out of them, and create a
@@ -210,27 +211,19 @@ object Main:
 
       val r2 = (150.v)
       val base2 = Pt(100,300)
-      // TODO: MAKE THIS TYPESAFE OVER HOMOGENOUS TUPLES
-      val box2Path = Path(Seq())
+      val box2Path = Path.empty
+      box2Path.attr("fill","#228B22")
 
       // arity 1
       val execute = (r: Diff) => square(base2, r)
       Program(r2, execute, (_,pts) => box2Path.update(pts))
-      box2Path.attr("fill","#228B22")
-
-      // // arity 2
-      // val execute = (r: Diff, _ : Diff) => square(base2, r)
-      // Program((r2,0.v), execute.tupled, (_,pts) => box2Path.update(pts))
-      // box2Path.attr("fill","#228B22")
-
-
 
       // Great, this works. Let's try a circle?
-      // NB: works great with radius, somewhat poorly with theta
+
       val base3 = Pt(500, 450)
-      val circPath = Circle(base3,"100px","#FF2288").draggable
       val (r,t) = (100.v, 0.v)
 
+      val circPath = Circle(base3,"100px",g)
       val circleFn = (r: Diff, t: Diff) =>
         val iters = 12
         (0 until iters).map(i =>
@@ -242,6 +235,15 @@ object Main:
       val p = Program((r,t), circleFn.tupled, { case ((r,_), _) =>
         circPath.attr("r",r.primal.toInt)
       })
+
+      circPath.draggable(_ =>
+        circleFn(r,t).zip(p.vertices).map((dp,circ) => circ.setPosition(dp.toPoint))
+      )
+
+      // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one that
+      // allows re-use of parameters and generation of paths through operations such as `Mirror`,
+      // `Translate`, `Rotate`, and so on.
+
 
     }
 

@@ -189,6 +189,10 @@ case class Circle(var position: Pt, radius: String, fill: String | Gradient)(usi
 given Conversion[Path, Element] with
   def apply(p: Path): Element = p.path
 
+object Path {
+  def empty(using SVGContext) : Path = Path(Seq())
+}
+
 case class Path(var points: Seq[Pt])(using ctx: SVGContext) { self =>
   val path = svg("path")
 
