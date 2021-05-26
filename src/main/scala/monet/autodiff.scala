@@ -7,7 +7,6 @@ import scala.collection.mutable.Set
 trait Operations[T]:
   def const(c: Double): T
   def zero: T
-  def lower(t : T) : Double
   def v(n: Int, a: Double): T
   def neg(a: T): T
   def add(a: T, b: T): T
@@ -16,24 +15,72 @@ trait Operations[T]:
   def div(a: T, b: T): T
   def sin(a: T): T
   def cos(a: T): T
+  def toInt(a: T): Int
 
-extension [T](a: T)(using o: Operations[T])
-  def +(b: T) = o.add(a,b)
+// Here's the problem:
+// When we are using our AD DSL, we want to be able to use
+// infix operators on doubles and automatically convert them
+// into `Diff` nodes if the need arises, like `4.0 * x*x`, or
+// `1 + y` -- really, any arithmetic expression with a constant
+// on the left.
+//
+// In a different context, when we are writing _operations_ for
+// our AD DSL, we want to be able to write functions that are
+// agnostic to whether they are operating on Diff nodes or plain
+// doubles, as long as the requisite ops are ther. Along the lines of:
+//
+// def foo[T: Operations](a: T) =
+//   a * a
+//
+// To achieve this second objective we need to be able to derive syntax
+// for any `T`, namely, the generic syntax contained here.
+// However, since we have Double as one of our `T`s, then there is
+// syntax derived for it, which means that the above operation `1 + y`
+// won't convert the Double -- the expression will instead expect `y`
+// to be a Double and then error out.
+//
+// As a result: We keep GenericTSyntax scoped such that we import it
+// only in the event we need to support the second context. When it is
+// in scope, we cannot use doubles as constants on the left.
+//
+// An alternative solution: scope `given Operations[Double]` in the
+// same way. We elect not to do this because it would require that to
+// be in scope anytime the type Pt[Double] (or really the type of any
+// container generic over T used with Double) is written, which has
+// a far larger surface area.
+object GenericTSyntax:
+  extension [T](a: T)(using o: Operations[T])
+    def +(b: T) = o.add(a,b)
+    def +(b: Double) = o.add(a,o.const(b))
+    def -(b: T) = o.sub(a,b)
+    def -(b: Double) = o.sub(a,o.const(b))
+    def *(b: T) = o.mult(a,b)
+    def *(b: Double) = o.mult(a,o.const(b))
+    def /(b: T) = o.div(a,b)
+    def /(b: Double) = o.div(a,o.const(b))
+    def unary_- = o.sub(o.zero, a)
+    def sin = o.sin(a)
+    def cos = o.cos(a)
+    def toInt = o.toInt(a)
+
+extension (a: Diff)(using o: Operations[Diff])
+  def +(b: Diff) = o.add(a,b)
   def +(b: Double) = o.add(a,o.const(b))
-  def -(b: T) = o.sub(a,b)
+  def -(b: Diff) = o.sub(a,b)
   def -(b: Double) = o.sub(a,o.const(b))
-  def *(b: T) = o.mult(a,b)
+  def *(b: Diff) = o.mult(a,b)
   def *(b: Double) = o.mult(a,o.const(b))
-  def /(b: T) = o.div(a,b)
+  def /(b: Diff) = o.div(a,b)
   def /(b: Double) = o.div(a,o.const(b))
   def unary_- = o.sub(o.zero, a)
   def sin = o.sin(a)
   def cos = o.cos(a)
+  def toInt = o.toInt(a)
 
-extension [T](a: Double)(using o: Operations[T], c : DiffContext)
+extension (a: Double)(using o: Operations[Diff], c : DiffContext)
   def v = o.v(c.freshTemp, a)
-  def +(b: T) = o.add(o.const(a),b)
-  def *(b: T) = o.mult(o.const(a),b)
+  def +(b: Diff) = o.add(o.const(a),b)
+  def *(b: Diff) = o.mult(o.const(a),b)
 
 // Parametrized over any T that has an operations instance,
 // we can create an instance of the given conversion.
@@ -52,8 +99,6 @@ given (using DiffContext) : Operations[Diff] with
   def const(c: Double) = Diff(c)
   def zero: Diff = const(0)
   def v(n: Int, a: Double) = Var(n,a)
-  def lower(t: Diff) = t.primal
-
   def neg(a: Diff): Diff = registerChild(Sub(zero,a),a)
   def add(a: Diff, b: Diff): Diff = registerChild(Sum(a,b),a,b)
   def sub(a: Diff, b: Diff): Diff = registerChild(Sub(a,b),a,b)
@@ -61,6 +106,21 @@ given (using DiffContext) : Operations[Diff] with
   def div(a: Diff, b: Diff): Diff = registerChild(Div(a,b),a,b)
   def sin(a: Diff): Diff = registerChild(Sin(a),a)
   def cos(a: Diff): Diff = registerChild(Cos(a),a)
+  def toInt(a: Diff): Int = a.primal.toInt
+
+given Operations[Double] with
+  def const(c: Double) = c
+  def zero: Double = 0
+  def v(n: Int, a: Double) = a
+  def neg(a: Double): Double = -a
+  def add(a: Double, b: Double): Double = a+b
+  def sub(a: Double, b: Double): Double = a-b
+  def mult(a: Double, b: Double): Double = a*b
+  def div(a: Double, b: Double): Double = a/b
+  def sin(a: Double): Double = math.sin(a)
+  def cos(a: Double): Double = math.cos(a)
+  def toInt(a: Double): Int = a.toInt
+
 
 // Plumbing (Key into a hashmap using an arbitrary order of multiple keys)
 class CacheKey(val keys: Seq[Diff]):
@@ -257,7 +317,7 @@ def Cos(a : Diff)
   }
 
 
-def parameters(ps: Seq[Double])(using DiffContext) =
+def parameters(ps: Seq[Double])(using DiffContext): Seq[Diff] =
   ps.map(p => p.v)
 
 object TestSemantics:
@@ -265,5 +325,5 @@ object TestSemantics:
     given DiffContext = new DiffContext()
     val Seq(a) = parameters { Seq(2) }
     val b = 3
-    val c = 4*a*a+b*b
+    val c  = (4.0*a*a)+b*b
     println(c.d(Seq(a),1.0))

@@ -17,11 +17,12 @@ import scala.collection.mutable.ArrayBuffer
 import scala.compiletime.ops.string
 import scala.annotation.meta.param
 
-case class Pt(val x: Double, val y: Double):
-  def +(other: Pt) =
+case class Pt[T](val x : T, val y : T)(using Operations[T]):
+  import GenericTSyntax._
+  def +(other: Pt[T]) =
     Pt(x + other.x, y + other.y)
 
-  def -(other: Pt) =
+  def -(other: Pt[T]) =
     Pt(x - other.x, y - other.y)
 
   def *(other: Double) =
@@ -30,25 +31,11 @@ case class Pt(val x: Double, val y: Double):
   def toSVG =
     s"${x.toInt} ${y.toInt}"
 
-// Todo: Unify this with the above somehow
-case class DiffPt(val x : Diff, val y : Diff)(using DiffContext):
-  def +(other: DiffPt) =
-    DiffPt(x + other.x, y + other.y)
+  def map[Q : Operations](f : T => Q): Pt[Q] =
+    Pt(f(x),f(y))
 
-  def -(other: Pt) =
-    DiffPt(x - other.x, y - other.y)
-
-  def *(other: Double) =
-    DiffPt(x * other, y * other)
-
-  def toSVG =
-    s"${x.primal.toInt} ${y.primal.toInt}"
-
-  def toPoint =
-    Pt(x.primal, y.primal)
-
-
-def updateCircleCenter(element: Element, pt: Pt) =
+def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
+  import GenericTSyntax._
   element
     .attr("cx",pt.x.toInt)
     .attr("cy",pt.y.toInt)
@@ -168,7 +155,8 @@ object Layers:
 given Conversion[Circle, Element] with
   def apply(p: Circle): Element = p.circ
 
-case class Circle(var position: Pt, radius: String, fill: String | Gradient)(using ctx: SVGContext) { self =>
+case class Circle(var position: Pt[Double], val radius: String, val fill: String | Gradient)
+  (using ctx: SVGContext) { self =>
   val circ = svg("circle")
   updateCircleCenter(circ, position)
   // TODO: Don't rely on a .draw() call for this, automatically add any created elements to an SVG context
@@ -181,7 +169,7 @@ case class Circle(var position: Pt, radius: String, fill: String | Gradient)(usi
   def mask(m: Mask): Circle =
     circ.attr("mask",s"url(#${m.id})")
     self
-  def setPosition(p : Pt) =
+  def setPosition(p : Pt[Double]) =
     updateCircleCenter(circ, p)
     position = p
 }
@@ -193,10 +181,10 @@ object Path {
   def empty(using SVGContext) : Path = Path(Seq())
 }
 
-case class Path(var points: Seq[Pt])(using ctx: SVGContext) { self =>
+case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   val path = svg("path")
 
-  def update(newPoints: Seq[Pt]) =
+  def update(newPoints: Seq[Pt[Double]]) =
     points = newPoints
     if (newPoints.length > 0)
       var pathString = s"M ${newPoints(0).toSVG}"
@@ -209,24 +197,43 @@ case class Path(var points: Seq[Pt])(using ctx: SVGContext) { self =>
   path.draw()
 }
 
+case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
+  import GenericTSyntax._
+  val diff = b.x - a.x
+  val slope = (b.y - a.y) / diff
+  val yInt = (b.x*a.y - a.x*b.y) / diff
+  val s2 = (slope*slope) + 1.0
+
+  def reflect(c: Pt[T]) =
+    val d = ((c.x + (c.y - yInt)*slope) / s2) * 2.0
+    Pt[T](d - c.x, d * slope - c.y + yInt*2)
+
 trait Geometrizable:
   def duplicate: Geometrizable
-  def mirror(c: Double): Geometrizable
+  def mirror[T:Operations](c: Axis[T]): Geometrizable
 
 trait Geometry[A]:
   def duplicate(a: A): A
-  def mirror(a: A, c: Double): A
+  def mirror[T:Operations](a: A, c: Axis[T]): A
 
-class CC(val b: Pt, val r: Double)
-class SS(val pts: Seq[Pt])
+given (using SVGContext): Geometry[Circle] with
+  def duplicate(circle: Circle) =
+    Circle(circle.position, circle.radius, circle.fill)
+  def mirror[T:Operations](circle: Circle, a: Axis[T]) = // fake fake not real
+    Circle(circle.position, circle.radius, circle.fill)
+  //   Circle()
 
-given Geometry[CC] with
-  def duplicate(a: CC) = CC(a.b,a.r)
-  def mirror(a: CC, c: Double) = CC(a.b, a.r+c)
 
-given Geometry[SS] with
-  def duplicate(a: SS) = SS(a.pts)
-  def mirror(a: SS, c: Double) = SS(a.pts.map(p => Pt(p.x+c,p.y)))
+// class CC(val b: Pt, val r: Double)
+// class SS(val pts: Seq[Pt])
+
+// given Geometry[CC] with
+//   def duplicate(a: CC) = CC(a.b,a.r)
+//   def mirror(a: CC, c: Double) = CC(a.b, a.r+c)
+
+// given Geometry[SS] with
+//   def duplicate(a: SS) = SS(a.pts)
+//   def mirror(a: SS, c: Double) = SS(a.pts.map(p => Pt(p.x+c,p.y)))
 
 // We want to be polymorphic over a list of potentially non-homonogenous geometries.
 // As a result we would either have to subclass some abstract geometry class to do it,
@@ -236,7 +243,7 @@ given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] w
   def apply(a: A): Geometrizable =
     new Geometrizable {
       def duplicate = ops.duplicate(a)
-      def mirror(c: Double) = ops.mirror(a,c)
+      def mirror[T:Operations](c: Axis[T]) = ops.mirror(a,c)
     }
 
 // Each program takes as input a set of initial parameters that serve as the root
@@ -256,20 +263,20 @@ type Homogenous[H, T <: Tuple] = T match
 
 case class Program[Params <: Tuple](
   parameters: Params,
-  execute : Params => Seq[DiffPt],
-  makePath: (Params, Seq[Pt]) => Unit)
+  execute : Params => Seq[Pt[Diff]],
+  makePath: (Params, Seq[Pt[Double]]) => Unit)
 (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) { self =>
   var MAX_ITERS = 10
   var SCALE_GRADIENT = MAX_ITERS
 
   var diffPts = execute(parameters)
-  var concretePts = diffPts.map(_.toPoint)
+  var concretePts = diffPts.map(_.map(_.primal))
   makePath(parameters, concretePts)
 
   var vertices : Seq[Circle] = null;
   vertices = concretePts.zipWithIndex.map((pt,i) =>
-    Circle(pt,"5px","transparent").draggable((target : Pt) =>
-      val DiffPt(dx, dy) = diffPts(i)
+    Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
+      val Pt(dx, dy) = diffPts(i)
       val (distX, distY) = (dx - target.x, dy - target.y)
       val dist = (distX * distX) + (distY * distY)
       ctx.prepare(Seq(dist))
@@ -287,7 +294,7 @@ case class Program[Params <: Tuple](
 
       // Update the path position and the vertex positions
       diffPts = execute(parameters)
-      concretePts = diffPts.map(_.toPoint)
+      concretePts = diffPts.map(_.map(_.primal))
       makePath(parameters, concretePts)
       for ((newPt,j) <- concretePts.zipWithIndex if j != i)
         vertices(j).setPosition(newPt)
@@ -301,19 +308,19 @@ case class Program[Params <: Tuple](
 given Draggable[Circle] with
   def basePoint(c: Circle) = c.position
   def element(c: Circle) = c.circ
-  def render(c: Circle, loc: Pt): Unit = c.setPosition(loc)
+  def render(c: Circle, loc: Pt[Double]): Unit = c.setPosition(loc)
 
 extension [A](a: A)(using drg: Draggable[A])
   def draggable = drg.draggable(a, (p) => ())
-  def draggable(onChange: Pt => Unit) = drg.draggable(a, onChange)
+  def draggable(onChange: Pt[Double] => Unit) = drg.draggable(a, onChange)
 
 sealed trait Draggable[T]:
-  def basePoint(geometry: T): Pt
+  def basePoint(geometry: T): Pt[Double]
   def element(geometry: T): Element
-  def render(e: T, loc: Pt): Unit
-  def draggable(geometry: T, onChange: Pt => Unit): T =
-    var originalPt : Pt = Pt(0, 0)
-    var originalClick = Pt(0, 0)
+  def render(e: T, loc: Pt[Double]): Unit
+  def draggable(geometry: T, onChange: Pt[Double] => Unit): T =
+    var originalPt : Pt[Double] = Pt(0, 0)
+    var originalClick = Pt[Double](0, 0)
     var elt = element(geometry)
 
     val doc = document
@@ -375,7 +382,7 @@ object TestArity:
     a + b
   val f4 = (a: Diff, b: Diff) => a+b
 
-  val f2 = (10.v, 20.v)
+  val f2 : (Diff,Diff) = (10.v, 20.v)
 
   def f3(args: (Diff,Diff,Diff)) =
     val (a,b,c) = args

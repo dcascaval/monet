@@ -123,7 +123,7 @@ object Main:
       )
 
       def mkcirc(x: Int, y: Int) =
-        var circPt = Pt(x, y)
+        var circPt = Pt[Double](x, y)
         // TODO: parametric percentages are a function of width.
         Circle(circPt, "10%", g)
           .draggable
@@ -140,11 +140,12 @@ object Main:
       // a set of initial points, make a path out of them, and create a
       // set of "vertices" which, when dragged, update the corresponding
       // point in the array and cause the path to re-render.
-      val pts = ArrayBuffer(Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
+      val pts = ArrayBuffer[Pt[Double]]
+        (Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
       val path = Path(pts.toSeq)
 
       for ((pt,i) <- pts.zipWithIndex)
-        val c = Circle(pt,"5px","transparent").draggable((p : Pt) =>
+        val c = Circle(pt,"5px","transparent").draggable((p : Pt[Double]) =>
           pts(i) = p
           path.update(pts.toSeq)
         )
@@ -156,17 +157,17 @@ object Main:
       // we will take a parameterized program and attempt to find the closest
       // parameter value to our target.
       given ctx: DiffContext = new DiffContext()
-      def square(base : Pt, r: Diff) : Seq[DiffPt] =
+      def square(base : Pt[Double], r: Diff) : Seq[Pt[Diff]] =
         Seq(
-          DiffPt(base.x,  base.y),
-          DiffPt(base.x+r,base.y),
-          DiffPt(base.x+r,base.y+r),
-          DiffPt(base.x,  base.y+r))
+          Pt[Diff](base.x,  base.y),
+          Pt[Diff](base.x+r,base.y),
+          Pt[Diff](base.x+r,base.y+r),
+          Pt[Diff](base.x,  base.y+r))
 
-      val base = Pt(500,100)
+      val base = Pt[Double](500,100)
       val radius = 100.v
       var sqPts = square(base,radius)
-      var concretePts = sqPts.map(_.toPoint)
+      var concretePts = sqPts.map(_.map(_.primal))
       val sqPath = Path(concretePts)
       sqPath.attr("fill","black")
 
@@ -177,8 +178,8 @@ object Main:
         // the target as the target is dragged. We do this by computing
         // the derivative of the expression and and then minimizing
         // along that line.
-        val c = Circle(pt,"5px","transparent").draggable((target : Pt) =>
-          val DiffPt(dx, dy) = sqPts(i)
+        val c = Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
+          val Pt(dx, dy) = sqPts(i)
           val (distX, distY) = (dx - target.x, dy - target.y)
           val dist = (distX * distX) + (distY * distY)
           ctx.prepare(Seq(dist))
@@ -195,7 +196,7 @@ object Main:
 
           // Update the path position and the vertex positions
           sqPts = square(base, radius)
-          concretePts = sqPts.map(_.toPoint)
+          concretePts = sqPts.map(_.map(_.primal))
           sqPath.update(concretePts)
           for ((newPt,j) <- concretePts.zipWithIndex if j != i)
             circles(j).setPosition(newPt)
@@ -210,7 +211,7 @@ object Main:
       // going to be equivalent for each point. So, rewriting:
 
       val r2 = (150.v)
-      val base2 = Pt(100,300)
+      val base2 = Pt[Double](100,300)
       val box2Path = Path.empty
       box2Path.attr("fill","#228B22")
 
@@ -220,7 +221,7 @@ object Main:
 
       // Great, this works. Let's try a circle?
 
-      val base3 = Pt(500, 450)
+      val base3 = Pt[Double](500, 450)
       val (r,t) = (100.v, 0.v)
 
       val circPath = Circle(base3,"100px",g)
@@ -229,7 +230,7 @@ object Main:
         (0 until iters).map(i =>
           val p = i.toDouble / iters
           val theta = (t/360.0) + p * (2*math.Pi)
-          DiffPt(circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
+          Pt[Diff](circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
         )
 
       val p = Program((r,t), circleFn.tupled, { case ((r,_), _) =>
@@ -237,7 +238,7 @@ object Main:
       })
 
       circPath.draggable(_ =>
-        circleFn(r,t).zip(p.vertices).map((dp,circ) => circ.setPosition(dp.toPoint))
+        circleFn(r,t).zip(p.vertices).map((dp,circ) => circ.setPosition(dp.map(_.primal)))
       )
 
       // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one that
