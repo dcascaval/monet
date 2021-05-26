@@ -84,10 +84,10 @@ extension (a: Double)(using o: Operations[Diff], c : DiffContext)
 
 // Parametrized over any T that has an operations instance,
 // we can create an instance of the given conversion.
-given [T](using o: Operations[T]) : Conversion[Double,T] with
-  def apply(a: Double):T = o.const(a)
-given [T](using o: Operations[T]) : Conversion[Int,T] with
-  def apply(a: Int):T = o.const(a)
+given (using o: Operations[Diff]) : Conversion[Double,Diff] with
+  def apply(a: Double):Diff = o.const(a)
+given (using o: Operations[Diff]) : Conversion[Int,Diff] with
+  def apply(a: Int):Diff = o.const(a)
 
 def registerChild(child: Diff, parents: Diff*): Diff =
   for (parent <- parents)
