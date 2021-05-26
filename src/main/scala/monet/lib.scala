@@ -209,6 +209,36 @@ case class Path(var points: Seq[Pt])(using ctx: SVGContext) { self =>
   path.draw()
 }
 
+trait Geometrizable:
+  def duplicate: Geometrizable
+  def mirror(c: Double): Geometrizable
+
+trait Geometry[A]:
+  def duplicate(a: A): A
+  def mirror(a: A, c: Double): A
+
+class CC(val b: Pt, val r: Double)
+class SS(val pts: Seq[Pt])
+
+given Geometry[CC] with
+  def duplicate(a: CC) = CC(a.b,a.r)
+  def mirror(a: CC, c: Double) = CC(a.b, a.r+c)
+
+given Geometry[SS] with
+  def duplicate(a: SS) = SS(a.pts)
+  def mirror(a: SS, c: Double) = SS(a.pts.map(p => Pt(p.x+c,p.y)))
+
+// We want to be polymorphic over a list of potentially non-homonogenous geometries.
+// As a result we would either have to subclass some abstract geometry class to do it,
+// but then we would be stuck doing some F-bounded polymorphism thing and I don't want to deal,
+// particularly because 99% of the time we don't even really need the specialized methods
+given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] with
+  def apply(a: A): Geometrizable =
+    new Geometrizable {
+      def duplicate = ops.duplicate(a)
+      def mirror(c: Double) = ops.mirror(a,c)
+    }
+
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
 // points, and a path function that redraws the path given a combination of parameters
