@@ -17,6 +17,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.Set
 import scala.compiletime.ops.string
 import scala.annotation.meta.param
+import org.w3c.dom.css.Rect
 
 class Pt[T](var x : T, var y : T)(using Operations[T]):
   import GenericTSyntax._
@@ -104,7 +105,6 @@ sealed trait Layer { self =>
     self
 }
 
-
 extension [T <: Element](elt: T)
   def withClass(cls: String) : T =
     elt.classList.add(cls)
@@ -185,9 +185,8 @@ case class Circle(var position: Pt[Double], val radius: String, val fill: String
 given Conversion[Path, Element] with
   def apply(p: Path): Element = p.path
 
-object Path {
+object Path:
   def empty(using SVGContext) : Path = Path(Seq())
-}
 
 case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   val path = svg("path")
@@ -203,6 +202,61 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   update(points)
   path.draw()
 }
+
+case class Gumball(var center : Pt[Double], onChange: Pt[Double] => Unit)(using SVGContext):
+  val SIZE = 100
+  val WIDTH = 2
+
+  var v = Rectangle(Pt(0,0),Pt(0,0))
+  v.attr("fill","blue").attr("stroke-width","20").attr("stroke","transparent")
+  var h = Rectangle(Pt(0,0),Pt(0,0))
+  h.attr("fill","red").attr("stroke-width","20").attr("stroke","transparent")
+
+  val elements = Seq[(Rectangle,Pt[Double]=>Pt[Double])](
+    (v,diff => Pt(0,diff.y)),(h,diff => Pt(diff.x,0))
+  )
+
+  for ((e,mapDiff) <- elements) e.draggable(newPoint =>
+    val diff = mapDiff(newPoint - center)
+    for ((f,_) <- elements)
+      f.update(center+diff,center+diff+(f.p2-f.p1))
+    onChange(diff)
+    center += diff
+  )
+
+  def show(newCenter: Pt[Double]) =
+    center = newCenter
+    v.update(center,Pt(center.x+WIDTH,center.y-SIZE))
+    h.update(center,Pt(center.x+SIZE,center.y+WIDTH))
+
+  def hide =
+    v.update(Pt(0,0),Pt(0,0))
+    h.update(Pt(0,0),Pt(0,0))
+
+  v.draw()
+  h.draw()
+
+given Conversion[Rectangle, Element] with
+  def apply(p: Rectangle): Element = p.path
+
+def order(a: Double, b: Double) =
+  if (a<=b) (a,b) else (b,a)
+
+case class Rectangle(var p1: Pt[Double], var p2: Pt[Double])(using ctx: SVGContext):
+  val path = svg("rect")
+
+  def update(nextP1: Pt[Double], nextP2: Pt[Double]) =
+    p1 = nextP1; p2 = nextP2
+    val (minx,maxx) = order(p1.x,p2.x)
+    val (miny,maxy) = order(p1.y,p2.y)
+    path
+      .attr("x",minx.toInt)
+      .attr("y",miny.toInt)
+      .attr("width",(maxx-minx).toInt)
+      .attr("height",(maxy-miny).toInt)
+
+  update(p1,p2)
+  path.draw()
 
 case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
   import GenericTSyntax._
@@ -381,15 +435,24 @@ given Draggable[Circle] with
   def element(c: Circle) = c.circ
   def render(c: Circle, loc: Pt[Double]): Unit = c.setPosition(loc)
 
+given Draggable[Rectangle] with
+  def basePoint(r: Rectangle) = r.p1
+  def element(r: Rectangle) = r.path
+  def render(r: Rectangle, loc: Pt[Double]) : Unit =
+    r.update(loc,r.p2 + (loc-r.p1))
+
 extension [A](a: A)(using drg: Draggable[A])
-  def draggable = drg.draggable(a, (p) => ())
-  def draggable(onChange: Pt[Double] => Unit) = drg.draggable(a, onChange)
+  def draggable = drg.draggable(a, (_,_) => ())
+  // Callback takes a simple position (no state). Good for simple drags.
+  def draggable(onChange: Pt[Double] => Unit) = drg.draggable(a, (p,_) => onChange(p))
+  // Callback takes a pair of position and differential from old location.
+  def draggable(onChange: (Pt[Double], Pt[Double]) => Unit) =  drg.draggable(a, onChange)
 
 sealed trait Draggable[T]:
   def basePoint(geometry: T): Pt[Double]
   def element(geometry: T): Element
   def render(e: T, loc: Pt[Double]): Unit
-  def draggable(geometry: T, onChange: Pt[Double] => Unit): T =
+  def draggable(geometry: T, onChange: (Pt[Double],Pt[Double]) => Unit): T =
     var originalPt : Pt[Double] = Pt(0, 0)
     var originalClick = Pt[Double](0, 0)
     var elt = element(geometry)
@@ -399,9 +462,10 @@ sealed trait Draggable[T]:
     // https://stackoverflow.com/questions/42748852/remove-event-listener-in-scala-js
     val moveListener: js.Function1[MouseEvent, Unit] = e =>
       val curClick = Pt(e.clientX, e.clientY)
-      val controlPt = originalPt + (curClick - originalClick)
+      val diff = curClick - originalClick
+      val controlPt = originalPt + diff
       render(geometry, controlPt)
-      onChange(controlPt)
+      onChange(controlPt, diff)
 
     var upListener: js.Function1[MouseEvent, Unit] = null
     upListener = e => // Clean up

@@ -146,7 +146,7 @@ object Main:
       val path = Path(pts.toSeq)
 
       for ((pt,i) <- pts.zipWithIndex)
-        val c = Circle(pt,"5px","transparent").draggable((p : Pt[Double]) =>
+        val c = Circle(pt,"5px","transparent").draggable(p =>
           pts(i) = p
           path.update(pts.toSeq)
         )
@@ -264,6 +264,7 @@ object Main:
       val NUM_POINTS = 100
       val POINT_SCALE = 1000
 
+
       val pts = (0 to NUM_POINTS).map(_ =>
         val pt = Pt(math.random * POINT_SCALE, math.random * POINT_SCALE)
         val c = Circle(pt,"5px","transparent")
@@ -273,24 +274,32 @@ object Main:
 
       var fixedPts = Set[Pt[Double]]()
 
+      def avg(set: Iterable[Pt[Double]]) =
+        var xTotal = 0.0
+        var yTotal = 0.0
+        for (pt <- set)
+          xTotal += pt.x
+          yTotal += pt.y
+        Pt(xTotal/set.size, yTotal/set.size)
+
+
+      var gumball : Gumball = null;
       val ss = Selector(pts.keys.toSeq,
-        ptSet => ptSet.foreach(p => pts(p).attr("fill","red")),
+        ptSet =>
+          for(p <- ptSet) pts(p).attr("fill","red")
+          gumball.show(avg(ptSet))
+        ,
         ptSet => ptSet.foreach(p =>
           if (!(fixedPts contains p))
             pts(p).attr("fill","transparent")
         )
       )
 
-      pts.foreach((p,c) =>
-        c.draggable(newPt =>
-          val diff = newPt - p
-          ss.selected.foreach(oldPt =>
-            if (!(fixedPts contains oldPt))
-              val oldCirc = pts(oldPt)
-              oldPt.set(oldPt + diff)
-              oldCirc.setPosition(oldPt)
-          )
-        )
+      gumball = Gumball(Pt(0,0), diff =>
+        for (oldPt <- ss.selected if !(fixedPts contains oldPt))
+          val oldCirc = pts(oldPt)
+          oldPt.set(oldPt + diff)
+          oldCirc.setPosition(oldPt)
       )
 
       document.addEventListener("keydown",(e : KeyboardEvent) =>
