@@ -212,38 +212,46 @@ object Main:
 
       val r2 = (150.v)
       val base2 = Pt[Double](100,300)
-      val box2Path = Path.empty
-      box2Path.attr("fill","#228B22")
 
       // arity 1
       val execute = (r: Diff) => square(base2, r)
-      Program(r2, execute, (_,pts) => box2Path.update(pts))
+      Program(r2, execute,
+        (_,pts) => { val p = Path(pts); p.attr("fill","#228B22"); Seq(p) },
+        (_,pts,e) => { val Seq(p) = e; p.update(pts) }
+      )
 
       // Great, this works. Let's try a circle?
 
       val base3 = Pt[Double](500, 450)
       val (r,t) = (100.v, 0.v)
 
-      val circPath = Circle(base3,"100px",g)
+
+
       val circleFn = (r: Diff, t: Diff) =>
         val iters = 12
         (0 until iters).map(i =>
           val p = i.toDouble / iters
           val theta = (t/360.0) + p * (2*math.Pi)
-          Pt[Diff](circPath.position.x + r * theta.cos, circPath.position.y + r * theta.sin)
+          Pt[Diff](base3.x + r * theta.cos, base3.y + r * theta.sin)
         )
 
-      val p = Program((r,t), circleFn.tupled, { case ((r,_), _) =>
-        circPath.attr("r",r.primal.toInt)
-      })
+      val p1 = Program((r,t), circleFn.tupled,
+        { case ((r,_),_) => Seq(Circle(base3,s"${r.toInt}px",g)) },
+        { case ((r,_),_,s) => s(0).attr("r",r.primal.toInt) }
+      )()
 
-      circPath.draggable(_ =>
-        circleFn(r,t).zip(p.vertices).map((dp,circ) => circ.setPosition(dp.map(_.primal)))
-      )
+      val p2 = Program((r,t), circleFn.tupled,
+        (_,pts) => pts.map(p => Circle(p,"10px",g)) ,
+        (_,pts,geos) => pts.zip(geos).map((p,e) => e.setPosition(p))
+      )()
 
       // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one that
       // allows re-use of parameters and generation of paths through operations such as `Mirror`,
       // `Translate`, `Rotate`, and so on.
+
+      // This is an attempt at such:
+      val axis : Axis[Diff] = Axis(Pt(0,250),Pt(100,250))
+      val p3 = Mirror(p2, axis)()
 
 
     }

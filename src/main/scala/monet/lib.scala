@@ -210,30 +210,23 @@ case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
 
 trait Geometrizable:
   def duplicate: Geometrizable
-  def mirror[T:Operations](c: Axis[T]): Geometrizable
+  def mirror(c: Axis[Double]): Geometrizable
 
 trait Geometry[A]:
   def duplicate(a: A): A
-  def mirror[T:Operations](a: A, c: Axis[T]): A
+  def mirror(a: A, c: Axis[Double]): A
 
 given (using SVGContext): Geometry[Circle] with
   def duplicate(circle: Circle) =
     Circle(circle.position, circle.radius, circle.fill)
-  def mirror[T:Operations](circle: Circle, a: Axis[T]) = // fake fake not real
-    Circle(circle.position, circle.radius, circle.fill)
-  //   Circle()
+  def mirror(circle: Circle, a: Axis[Double]) =
+    Circle(a.reflect(circle.position), circle.radius, circle.fill)
 
-
-// class CC(val b: Pt, val r: Double)
-// class SS(val pts: Seq[Pt])
-
-// given Geometry[CC] with
-//   def duplicate(a: CC) = CC(a.b,a.r)
-//   def mirror(a: CC, c: Double) = CC(a.b, a.r+c)
-
-// given Geometry[SS] with
-//   def duplicate(a: SS) = SS(a.pts)
-//   def mirror(a: SS, c: Double) = SS(a.pts.map(p => Pt(p.x+c,p.y)))
+given (using SVGContext): Geometry[Path] with
+  def duplicate(path: Path) =
+    Path(path.points)
+  def mirror(path: Path, a: Axis[Double]) =
+    Path(path.points.map(a.reflect))
 
 // We want to be polymorphic over a list of potentially non-homonogenous geometries.
 // As a result we would either have to subclass some abstract geometry class to do it,
@@ -243,8 +236,12 @@ given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] w
   def apply(a: A): Geometrizable =
     new Geometrizable {
       def duplicate = ops.duplicate(a)
-      def mirror[T:Operations](c: Axis[T]) = ops.mirror(a,c)
+      def mirror(c: Axis[Double]) = ops.mirror(a,c)
     }
+
+// trait StatefulGeometry[Params, T]:
+//     def initialize(parameters: Params, controlPoints: Seq[Pt[Double]]): Seq[T]
+//     def update(parameters: Params, controlPoints: Seq[Pt[Double]], elements: Seq[T]): Unit
 
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
@@ -261,49 +258,61 @@ type Homogenous[H, T <: Tuple] = T match
   case H *: t => Homogenous[H, t]
   case _ => Nothing
 
-case class Program[Params <: Tuple](
-  parameters: Params,
-  execute : Params => Seq[Pt[Diff]],
-  makePath: (Params, Seq[Pt[Double]]) => Unit)
+case class Program[Params <: Tuple, Q](
+  val parameters: Params,
+  val execute : Params => Seq[Pt[Diff]],
+  val initializeGeometry: (Params,Seq[Pt[Double]]) => Seq[Q],
+  val updateGeometry: (Params,Seq[Pt[Double]],Seq[Q]) => Unit)
 (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) { self =>
-  var MAX_ITERS = 10
-  var SCALE_GRADIENT = MAX_ITERS
 
-  var diffPts = execute(parameters)
-  var concretePts = diffPts.map(_.map(_.primal))
-  makePath(parameters, concretePts)
+  def apply(): Program[Params,Q] =
+    var diffPts = execute(parameters)
+    var concretePts = diffPts.map(_.map(_.primal))
+    val elements = initializeGeometry(parameters, concretePts)
 
-  var vertices : Seq[Circle] = null;
-  vertices = concretePts.zipWithIndex.map((pt,i) =>
-    Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
-      val Pt(dx, dy) = diffPts(i)
-      val (distX, distY) = (dx - target.x, dy - target.y)
-      val dist = (distX * distX) + (distY * distY)
-      ctx.prepare(Seq(dist))
-      var prevDist = dist.primal
+    var vertices : Seq[Circle] = null;
+    vertices = concretePts.zipWithIndex.map((pt,i) =>
+      Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
+        val Pt(dx, dy) = diffPts(i)
+        val (distX, distY) = (dx - target.x, dy - target.y)
+        val dist = (distX * distX) + (distY * distY)
+        ctx.prepare(Seq(dist))
+        var prevDist = dist.primal
 
-      // We know this is safe because of the homogenous parameter
-      val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
+        // We know this is safe because of the homogenous parameter
+        val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
 
-      // We use a WASM-based version of SLSQP from the `nlopt-js` package
-      val newParams = optimize(ps.map(_.primal),
-        (newParams) => { ctx.update(ps, newParams); dist.primal },
-        (newParams) => { ctx.update(ps, newParams); dist.d(ps, 1.0) }
+        // We use a WASM-based version of SLSQP from the `nlopt-js` package
+        val newParams = optimize(ps.map(_.primal),
+          (newParams) => { ctx.update(ps, newParams); dist.primal },
+          (newParams) => { ctx.update(ps, newParams); dist.d(ps, 1.0) }
+        )
+        ctx.update(ps, newParams)
+
+        // Update the path position and the vertex positions
+        diffPts = execute(parameters)
+        concretePts = diffPts.map(_.map(_.primal))
+        updateGeometry(parameters, concretePts, elements)
+        for ((newPt,j) <- concretePts.zipWithIndex if j != i)
+          vertices(j).setPosition(newPt)
       )
-      ctx.update(ps, newParams)
-
-      // Update the path position and the vertex positions
-      diffPts = execute(parameters)
-      concretePts = diffPts.map(_.map(_.primal))
-      makePath(parameters, concretePts)
-      for ((newPt,j) <- concretePts.zipWithIndex if j != i)
-        vertices(j).setPosition(newPt)
     )
-  )
 
-  // Apply styling to be able to see the handle
-  vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
+    // Apply styling to be able to see the handle
+    vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
+    self
 }
+
+
+def Mirror[Params <: Tuple, Q](
+  p : Program[Params,Q],
+  axis: Axis[Diff]
+) (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) =
+  val execute = (ps: Params) =>
+    val pts = p.execute(ps)
+    pts ++ pts.map(axis.reflect)
+  Program(p.parameters, execute, p.initializeGeometry, p.updateGeometry)
+
 
 given Draggable[Circle] with
   def basePoint(c: Circle) = c.position

@@ -52,3 +52,7 @@ body {
 .handle:hover {
   fill: red !important;
 }
+
+circle {
+  transition: r 0.02s linear;
+}
