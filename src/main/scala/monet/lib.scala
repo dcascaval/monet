@@ -186,11 +186,10 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
 
   def update(newPoints: Seq[Pt[Double]]) =
     points = newPoints
-    if (newPoints.length > 0)
-      var pathString = s"M ${newPoints(0).toSVG}"
-      var rest = newPoints.drop(1).map(p => s"L ${p.toSVG}").reduce(_+_)
-      path
-        .attr("d",pathString+rest)
+    var pathString =  if (points.length > 0) s"M ${points(0).toSVG}" else ""
+    var rest = if (points.length > 1) points.drop(1).map(p => s"L ${p.toSVG}").reduce(_+_) else ""
+    path
+      .attr("d",pathString+rest)
 
 
   update(points)

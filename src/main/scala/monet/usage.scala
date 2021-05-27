@@ -256,9 +256,64 @@ object Main:
 
     }
 
+    val dragLayer = VectorLayer {
+      val ctx = summon[SVGContext]
+      val dwg = ctx.current.dwg
+
+      val NUM_POINTS = 100
+      val POINT_SCALE = 1000
+
+      val pts = (0 to NUM_POINTS).map(_ =>
+        Circle(Pt(math.random * POINT_SCALE, math.random * POINT_SCALE),"5px","transparent"))
+      pts.foreach(p => p.attr("stroke","black"))
+
+      var startClick = Pt[Double](0, 0)
+      var curClick = Pt[Double](0,0)
+      var rectangle = Path(Seq(startClick,startClick))
+      rectangle
+        .attr("stroke","black")
+        .attr("stroke-dasharray",4)
+        .attr("fill","transparent")
+
+      def inRectangle(pt: Pt[Double]) : Boolean =
+        val minx = math.min(startClick.x,curClick.x)
+        val miny = math.min(startClick.y,curClick.y)
+        val maxx = math.max(startClick.x,curClick.x)
+        val maxy = math.max(startClick.y,curClick.y)
+        minx < pt.x && pt.x < maxx && miny < pt.y && pt.y < maxy
+
+      val moveListener: js.Function1[MouseEvent, Unit] = e =>
+        curClick = Pt(e.clientX, e.clientY)
+        rectangle.update(Seq(
+          startClick,
+          Pt(startClick.x,curClick.y),
+          curClick,
+          Pt(curClick.x, startClick.y),
+          startClick
+        ))
+
+      var upListener: js.Function1[MouseEvent, Unit] = null
+      upListener = e => // Clean up
+        dwg.removeEventListener("mousemove", moveListener)
+        dwg.removeEventListener("mouseup", upListener)
+        curClick = Pt(e.clientX, e.clientY)
+        pts.map(c => if (inRectangle(c.position)) c.circ.attr("fill","red"))
+        rectangle.update(Seq())
+
+      dwg.addEventListener("mousedown",(e: MouseEvent) =>
+        for (circ <- pts)
+          circ.attr("fill","transparent")
+        startClick = Pt(e.clientX, e.clientY)
+        dwg.addEventListener("mousemove", moveListener)
+        dwg.addEventListener("mouseup", upListener)
+      )
+
+      // setTime
+    }
+
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in
     // the `boxes` (blend) and `points` (select) demos.
-    val layers : Seq[Layer] = Seq(tweakLayer)
+    val layers : Seq[Layer] = Seq(dragLayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
