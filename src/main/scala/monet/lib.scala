@@ -14,10 +14,11 @@ import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.svg
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.Set
 import scala.compiletime.ops.string
 import scala.annotation.meta.param
 
-case class Pt[T](val x : T, val y : T)(using Operations[T]):
+class Pt[T](var x : T, var y : T)(using Operations[T]):
   import GenericTSyntax._
   def +(other: Pt[T]) =
     Pt(x + other.x, y + other.y)
@@ -31,8 +32,15 @@ case class Pt[T](val x : T, val y : T)(using Operations[T]):
   def toSVG =
     s"${x.toInt} ${y.toInt}"
 
+  def set(other: Pt[T]): Unit =
+    x = other.x
+    y = other.y
+
   def map[Q : Operations](f : T => Q): Pt[Q] =
     Pt(f(x),f(y))
+
+object Pt:
+  def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
 
 def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
   import GenericTSyntax._
@@ -312,6 +320,61 @@ def Mirror[Params <: Tuple, Q](
     pts ++ pts.map(axis.reflect)
   Program(p.parameters, execute, p.initializeGeometry, p.updateGeometry)
 
+case class Selector(var pts: Seq[Pt[Double]],
+  onSelect: Set[Pt[Double]] => Any,
+  onDeselect: Set[Pt[Double]] => Any
+)
+  (using ctx: SVGContext):
+  private val dwg = ctx.current.dwg
+  private var startClick = Pt[Double](0, 0)
+  private var curClick = Pt[Double](0,0)
+  private var rectangle = Path(Seq(startClick,startClick))
+  rectangle
+    .attr("stroke","black")
+    .attr("stroke-dasharray",4)
+    .attr("fill","#00000022")
+
+  def inRectangle(pt: Pt[Double]) : Boolean =
+    val minx = math.min(startClick.x,curClick.x)
+    val miny = math.min(startClick.y,curClick.y)
+    val maxx = math.max(startClick.x,curClick.x)
+    val maxy = math.max(startClick.y,curClick.y)
+    minx < pt.x && pt.x < maxx && miny < pt.y && pt.y < maxy
+
+  private val moveListener: js.Function1[MouseEvent, Unit] = e =>
+    curClick = Pt(e.clientX, e.clientY)
+    rectangle.update(Seq(
+      startClick,
+      Pt(startClick.x, curClick.y),
+      curClick,
+      Pt(curClick.x, startClick.y),
+      startClick
+    ))
+
+  val selected = Set[Pt[Double]]()
+
+  private var upListener: js.Function1[MouseEvent, Unit] = null
+  upListener = e => // Clean up
+    dwg.removeEventListener("mousemove", moveListener)
+    dwg.removeEventListener("mouseup", upListener)
+    curClick = Pt(e.clientX, e.clientY)
+    pts.map(c => if (inRectangle(c)) selected.add(c))
+    onSelect(selected)
+    rectangle.update(Seq())
+
+  def clear =
+    onDeselect(selected)
+    selected.clear
+
+  dwg.addEventListener("mousedown",(e: MouseEvent) =>
+    clear
+    startClick = Pt(e.clientX, e.clientY)
+    dwg.addEventListener("mousemove", moveListener)
+    dwg.addEventListener("mouseup", upListener)
+  )
+
+
+
 
 given Draggable[Circle] with
   def basePoint(c: Circle) = c.position
@@ -348,11 +411,12 @@ sealed trait Draggable[T]:
     elt.addEventListener( // Click on the element
       "mousedown",
       (e: MouseEvent) =>
-        originalPt = basePoint(geometry)
+        originalPt.set(basePoint(geometry))
         originalClick = Pt(e.clientX, e.clientY)
         // Listen for it in the whole document.
         doc.addEventListener("mousemove", moveListener)
         doc.addEventListener("mouseup", upListener)
+        e.stopPropagation
     )
     geometry
 

@@ -11,6 +11,7 @@ import org.scalajs.dom.raw.CanvasRenderingContext2D
 import org.scalajs.dom.raw.Event
 import org.scalajs.dom.Element
 import org.scalajs.dom.MouseEvent
+import org.scalajs.dom.KeyboardEvent
 import org.scalajs.dom.raw.SVGElement
 import org.scalajs.dom.raw.Document
 import scala.collection.mutable.ArrayBuffer
@@ -264,49 +265,46 @@ object Main:
       val POINT_SCALE = 1000
 
       val pts = (0 to NUM_POINTS).map(_ =>
-        Circle(Pt(math.random * POINT_SCALE, math.random * POINT_SCALE),"5px","transparent"))
-      pts.foreach(p => p.attr("stroke","black"))
+        val pt = Pt(math.random * POINT_SCALE, math.random * POINT_SCALE)
+        val c = Circle(pt,"5px","transparent")
+        c.attr("stroke","black")
+        pt -> c
+      ).toMap
 
-      var startClick = Pt[Double](0, 0)
-      var curClick = Pt[Double](0,0)
-      var rectangle = Path(Seq(startClick,startClick))
-      rectangle
-        .attr("stroke","black")
-        .attr("stroke-dasharray",4)
-        .attr("fill","transparent")
+      var fixedPts = Set[Pt[Double]]()
 
-      def inRectangle(pt: Pt[Double]) : Boolean =
-        val minx = math.min(startClick.x,curClick.x)
-        val miny = math.min(startClick.y,curClick.y)
-        val maxx = math.max(startClick.x,curClick.x)
-        val maxy = math.max(startClick.y,curClick.y)
-        minx < pt.x && pt.x < maxx && miny < pt.y && pt.y < maxy
-
-      val moveListener: js.Function1[MouseEvent, Unit] = e =>
-        curClick = Pt(e.clientX, e.clientY)
-        rectangle.update(Seq(
-          startClick,
-          Pt(startClick.x,curClick.y),
-          curClick,
-          Pt(curClick.x, startClick.y),
-          startClick
-        ))
-
-      var upListener: js.Function1[MouseEvent, Unit] = null
-      upListener = e => // Clean up
-        dwg.removeEventListener("mousemove", moveListener)
-        dwg.removeEventListener("mouseup", upListener)
-        curClick = Pt(e.clientX, e.clientY)
-        pts.map(c => if (inRectangle(c.position)) c.circ.attr("fill","red"))
-        rectangle.update(Seq())
-
-      dwg.addEventListener("mousedown",(e: MouseEvent) =>
-        for (circ <- pts)
-          circ.attr("fill","transparent")
-        startClick = Pt(e.clientX, e.clientY)
-        dwg.addEventListener("mousemove", moveListener)
-        dwg.addEventListener("mouseup", upListener)
+      val ss = Selector(pts.keys.toSeq,
+        ptSet => ptSet.foreach(p => pts(p).attr("fill","red")),
+        ptSet => ptSet.foreach(p =>
+          if (!(fixedPts contains p))
+            pts(p).attr("fill","transparent")
+        )
       )
+
+      pts.foreach((p,c) =>
+        c.draggable(newPt =>
+          val diff = newPt - p
+          ss.selected.foreach(oldPt =>
+            if (!(fixedPts contains oldPt))
+              val oldCirc = pts(oldPt)
+              oldPt.set(oldPt + diff)
+              oldCirc.setPosition(oldPt)
+          )
+        )
+      )
+
+      document.addEventListener("keydown",(e : KeyboardEvent) =>
+        def updateFixed =
+          ss.clear
+          fixedPts.foreach(p => pts(p).attr("fill","green"))
+        if (e.key == "f")
+          fixedPts ++= ss.selected
+          updateFixed
+        if (e.key == "g")
+          fixedPts --= ss.selected
+          updateFixed
+      )
+
 
       // setTime
     }
