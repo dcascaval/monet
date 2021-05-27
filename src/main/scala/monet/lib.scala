@@ -18,6 +18,7 @@ import scala.collection.mutable.Set
 import scala.compiletime.ops.string
 import scala.annotation.meta.param
 import org.w3c.dom.css.Rect
+import java.nio.channels.ShutdownChannelGroupException
 
 class Pt[T](var x : T, var y : T)(using Operations[T]):
   import GenericTSyntax._
@@ -57,14 +58,12 @@ object SVG:
 
 case class SVG()(using doc: Document):
   val dwg = svg("svg").asInstanceOf[SVGElement]
-  val defs: ArrayBuffer[Gradient] = ArrayBuffer()
   val def_element = svg("defs")
   dwg.appendChild(def_element)
 
   def apply(): SVGElement = dwg
-  def addDefinition(gradient: Gradient): Unit =
-    defs.append(gradient)
-    def_element.appendChild(gradient.element)
+  def addDefinition(element: Element): Unit =
+    def_element.appendChild(element)
 
 sealed trait Gradient:
   val name : String
@@ -83,8 +82,14 @@ case class RadialGradient(name: String, stops: (Int, String)*)(using
       .attr("offset", percent)
       .attr("stop-color", color)
     element.appendChild(stopElement)
-  ctx.current.addDefinition(self)
+  ctx.current.addDefinition(element)
 }
+
+case class Blur(name: String, stdDev: Double)(using ctx: SVGContext):
+  val filter = svg("filter").attr("id" -> name, "x" -> "-250%", "y" -> "-250%", "width" -> "650%", "height" -> "650%")
+  val blur = svg("feGaussianBlur").attr("in" -> "SourceGraphic", "stdDeviation" -> stdDev)
+  filter.appendChild(blur)
+  filter.define()
 
 case class Mask(id: String, artwork: Element => Any)(using ctx: SVGContext):
   val element = svg("mask")
@@ -96,6 +101,11 @@ case class Mask(id: String, artwork: Element => Any)(using ctx: SVGContext):
               "height" -> "100%"))
   artwork(element)
   ctx.current.def_element.appendChild(element)
+
+case class Clip(name: String, element: Element)(using ctx: SVGContext):
+  val root = svg("clipPath").attr("id",name)
+  root.appendChild(element)
+  root.define()
 
 sealed trait Layer { self =>
   def element: Element
@@ -124,10 +134,18 @@ extension [T <: Element](elt: T)
     elt
   def draw()(using ctx: SVGContext) =
     ctx.current.dwg.appendChild(elt)
+  def define()(using ctx: SVGContext) =
+    ctx.current.def_element.appendChild(elt)
 
 extension (canvas : HTMLCanvasElement)
   def context2D : CanvasRenderingContext2D =
     canvas.getContext("2d").asInstanceOf[CanvasRenderingContext2D]
+
+extension (e: MouseEvent)
+  def shiftKey : Boolean =
+    e.getModifierState("Shift")
+  def ctrlKey : Boolean =
+    e.getModifierState("Ctrl")
 
 sealed class SVGContext:
   val layers: ArrayBuffer[SVG] = ArrayBuffer()
@@ -300,10 +318,6 @@ given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] w
       def mirror(c: Axis[Double]) = ops.mirror(a,c)
     }
 
-// trait StatefulGeometry[Params, T]:
-//     def initialize(parameters: Params, controlPoints: Seq[Pt[Double]]): Seq[T]
-//     def update(parameters: Params, controlPoints: Seq[Pt[Double]], elements: Seq[T]): Unit
-
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
 // points, and a path function that redraws the path given a combination of parameters
@@ -421,7 +435,7 @@ case class Selector(var pts: Seq[Pt[Double]],
     selected.clear
 
   dwg.addEventListener("mousedown",(e: MouseEvent) =>
-    clear
+    if (!e.shiftKey) clear
     startClick = Pt(e.clientX, e.clientY)
     dwg.addEventListener("mousemove", moveListener)
     dwg.addEventListener("mouseup", upListener)

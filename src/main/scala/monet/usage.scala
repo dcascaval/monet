@@ -153,10 +153,6 @@ object Main:
         c.withClass("handle")
           .attr("stroke","black")
 
-      // However, that results an arbitrarily shaped path, not maintaining
-      // any of the programmatic constraints of the initial shape. Instead
-      // we will take a parameterized program and attempt to find the closest
-      // parameter value to our target.
       given ctx: DiffContext = new DiffContext()
       def square(base : Pt[Double], r: Diff) : Seq[Pt[Diff]] =
         Seq(
@@ -164,52 +160,6 @@ object Main:
           Pt[Diff](base.x+r,base.y),
           Pt[Diff](base.x+r,base.y+r),
           Pt[Diff](base.x,  base.y+r))
-
-      val base = Pt[Double](500,100)
-      val radius = 100.v
-      var sqPts = square(base,radius)
-      var concretePts = sqPts.map(_.map(_.primal))
-      val sqPath = Path(concretePts)
-      sqPath.attr("fill","black")
-
-      var circles : Seq[Circle] = null
-      circles = concretePts.zipWithIndex.map((pt,i) =>
-        // At this point our problem setup is nearly complete. We
-        // will minimize the squared distance between the point
-        // the target as the target is dragged. We do this by computing
-        // the derivative of the expression and and then minimizing
-        // along that line.
-        val c = Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
-          val Pt(dx, dy) = sqPts(i)
-          val (distX, distY) = (dx - target.x, dy - target.y)
-          val dist = (distX * distX) + (distY * distY)
-          ctx.prepare(Seq(dist))
-          var prevDist = dist.primal
-
-          // Alternatively iterate to find the appropriate new radius. (a "10-shot") constant approximation, which seems to work quite well in simple cases.
-          val Seq(dr) = dist.d(Seq(radius), 0.1)
-          var iters = 0
-          ctx.update(radius -> (radius.primal - dr))
-          while (prevDist > dist.primal && iters < 10)
-            prevDist = dist.primal
-            ctx.update(radius -> (radius.primal - dr))
-            iters += 1
-
-          // Update the path position and the vertex positions
-          sqPts = square(base, radius)
-          concretePts = sqPts.map(_.map(_.primal))
-          sqPath.update(concretePts)
-          for ((newPt,j) <- concretePts.zipWithIndex if j != i)
-            circles(j).setPosition(newPt)
-        )
-        c.withClass("handle")
-         .attr("stroke","black")
-        c
-      )
-
-      // Now we need a way of programmatically generating the above function. One way is to say, this is always
-      // the optimization strategy we're going to use, it's
-      // going to be equivalent for each point. So, rewriting:
 
       val r2 = (150.v)
       val base2 = Pt[Double](100,300)
@@ -225,8 +175,6 @@ object Main:
 
       val base3 = Pt[Double](500, 450)
       val (r,t) = (100.v, 0.v)
-
-
 
       val circleFn = (r: Diff, t: Diff) =>
         val iters = 12
@@ -246,9 +194,9 @@ object Main:
         (_,pts,geos) => pts.zip(geos).map((p,e) => e.setPosition(p))
       )()
 
-      // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one that
-      // allows re-use of parameters and generation of paths through operations such as `Mirror`,
-      // `Translate`, `Rotate`, and so on.
+      // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one
+      // that allows re-use of parameters and generation of paths through operations such
+      // as `Mirror`, `Translate`, `Rotate`, and so on.
 
       // This is an attempt at such:
       val axis : Axis[Diff] = Axis(Pt(0,250),Pt(100,250))
@@ -313,14 +261,43 @@ object Main:
           fixedPts --= ss.selected
           updateFixed
       )
+    }
+
+    def randColor =
+      val r = (math.random * 255).toInt
+      val g = (math.random * 255).toInt
+      val b = (math.random * 255).toInt
+      s"rgb($r,$g,$b)"
+
+    val colorLayer = VectorLayer {
+      val SIZE = 200
+      val BASE = Pt[Double](300,300)
+
+      val pts = (0 to 2).map(i => (0 to 2).map(j => Pt[Double](i*SIZE,j*SIZE))).flatten.map(p => p + BASE)
+
+      val shapes = pts.map(p => Circle(p,s"${SIZE/2}px",randColor))
+      val blur = Blur("blur1",SIZE/2)
+      val clip = Clip("clip1", svg("circle").attr("r"->SIZE,"cx"->(SIZE+BASE.x),"cy"->(SIZE+BASE.y)))
+
+      for (shape <- shapes)
+        shape.attr("filter",s"url(#${blur.name})")
+        shape.attr("clip-path",s"url(#${clip.name})")
+
+      val clipControl = Circle(Pt(SIZE+BASE.x,SIZE+BASE.y),s"${SIZE}px","transparent").draggable(newPt =>
+        clip.element.attr("cx"->newPt.x,"cy"->newPt.y)
+      )
+
+      val controls = pts.zipWithIndex.map((p,i) => Circle(p,"5px","transparent").draggable(newPt =>
+        shapes(i).setPosition(newPt)
+      ).attr("stroke","black"))
 
 
-      // setTime
+
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in
     // the `boxes` (blend) and `points` (select) demos.
-    val layers : Seq[Layer] = Seq(dragLayer)
+    val layers : Seq[Layer] = Seq(colorLayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
