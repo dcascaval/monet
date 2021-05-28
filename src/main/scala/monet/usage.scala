@@ -22,6 +22,10 @@ import PixelLayerFunctions._
 extension [A,B](f: A => B)
   def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
 
+def dbg[T](expr: => T): T =
+  val result = expr
+  println(result.toString)
+  result
 
 // These have to exist for the arity-1 case of `Program` to work, otherwise
 // the Scala compiler crashes -- unclear why, as T is not a subtype of Tuple
@@ -137,23 +141,47 @@ object Main:
     val tweakLayer = VectorLayer {
       val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
 
-      // Here's what a basic draggable interface looks like. We create
-      // a set of initial points, make a path out of them, and create a
-      // set of "vertices" which, when dragged, update the corresponding
-      // point in the array and cause the path to re-render.
-      val pts = ArrayBuffer[Pt[Double]]
-        (Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
-      val path = Path(pts.toSeq)
+      // // Here's what a basic draggable interface looks like. We create
+      // // a set of initial points, make a path out of them, and create a
+      // // set of "vertices" which, when dragged, update the corresponding
+      // // point in the array and cause the path to re-render.
+      // val pts = ArrayBuffer[Pt[Double]]
+      //   (Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
+      // val path = Path(pts.toSeq)
 
-      for ((pt,i) <- pts.zipWithIndex)
-        val c = Circle(pt,"5px","transparent").draggable(p =>
-          pts(i) = p
-          path.update(pts.toSeq)
-        )
-        c.withClass("handle")
-          .attr("stroke","black")
-
+      // for ((pt,i) <- pts.zipWithIndex)
+      //   val c = Circle(pt,"5px","transparent").draggable(p =>
+      //     pts(i) = p
+      //     path.update(pts.toSeq)
+      //   )
+      //   c.withClass("handle")
+      //     .attr("stroke","black")
       given ctx: DiffContext = new DiffContext()
+
+
+      val trapBase = Pt[Double](950,150)
+      val trapezoidFn = (w: Diff) =>
+        val p1 = Pt(trapBase.x-w,trapBase.y-w)
+        Seq[Pt[Diff]](
+          p1,
+          Pt(trapBase.x+w,trapBase.y+w),
+          Pt(trapBase.x,  trapBase.y+w),
+          Pt(trapBase.x-w,trapBase.y),
+          p1
+        )
+      val trapProg = Program(50.v, trapezoidFn,
+        (_,pts) =>
+          val p = Path(pts)
+          p.attr("stroke"->"black","stroke-dasharray"->4,"fill"->"transparent")
+          Seq(p),
+        (_,pts,paths) => paths(0).update(pts)
+      )
+
+      val m1 = Mirror(trapProg, Axis(Pt(trapBase.x-125,0),Pt(trapBase.x-75,50)))
+      val m2 = Mirror(m1, Axis(Pt(0,trapBase.y+100),Pt(250,trapBase.y+100)))
+      val m3 = Mirror(m2, Axis(Pt(trapBase.x+99,0),Pt(trapBase.x+101,1000)))
+      m3()
+
       def square(base : Pt[Double], r: Diff) : Seq[Pt[Diff]] =
         Seq(
           Pt[Diff](base.x,  base.y),
@@ -187,12 +215,12 @@ object Main:
       val p1 = Program((r,t), circleFn.tupled,
         { case ((r,_),_) => Seq(Circle(base3,s"${r.toInt}px",g)) },
         { case ((r,_),_,s) => s(0).attr("r",r.primal.toInt) }
-      )()
+      )
 
       val p2 = Program((r,t), circleFn.tupled,
         (_,pts) => pts.map(p => Circle(p,"10px",g)) ,
         (_,pts,geos) => pts.zip(geos).map((p,e) => e.setPosition(p))
-      )()
+      )
 
       // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one
       // that allows re-use of parameters and generation of paths through operations such
@@ -200,9 +228,73 @@ object Main:
 
       // This is an attempt at such:
       val axis : Axis[Diff] = Axis(Pt(0,250),Pt(100,250))
-      val p3 = Mirror(p2, axis)()
+      // val p3 = Mirror(p2, axis)()
 
+      //
+      val chairBase = Pt[Double](100,300)
 
+      val chairFn = (theta : Diff, legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
+        var rTheta = 2.0*math.Pi*(theta / 360.0)
+        val cost = rTheta.cos; val sint = rTheta.sin
+        def up(pt: Pt[Diff], len: Diff)   = Pt(pt.x, pt.y-len)
+        def down(pt: Pt[Diff], len: Diff) = Pt(pt.x, pt.y+len)
+        def fwd(pt: Pt[Diff], len: Diff)  = Pt(pt.x+len*cost, pt.y+len*sint)
+        def iwd(pt: Pt[Diff], len: Diff)  = Pt(pt.x+len*cost, pt.y-len*sint)
+
+        val b1 = Pt[Diff](chairBase.x,chairBase.y)
+        val b2 = iwd(b1, width)
+        val o1 = fwd(b1, length)
+        val o2 = fwd(b2, length)
+
+        val ls = Seq(b1,b2,o1,o2).map(p => down(p,legHeight))
+        val u1 = up(b1, backHeight)
+        val u2 = up(b2, backHeight)
+        Seq(b2,o1,o2,u1,u2) ++ ls
+
+      val chairArgs = (30.v, 100.v, 100.v, 100.v, 10.v, 100.v)
+      // TODO: indices is a horrible way to do this
+      val indices = Seq((0,1),(1,3),(3,2),(2,0),(0,4),(1,5),(4,5),(0,6),(1,7),(2,8),(3,9))
+      val chairProg = Program(chairArgs, chairFn.tupled,
+        (_,_p) => {
+          val pts = Seq(chairBase) ++ _p
+          val result = indices.map(is => Path(Seq(pts(is(0)),pts(is(1)))))
+          result.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4))
+          result
+        },
+        (_,_p,geos) => {
+           val pts = Seq(chairBase) ++ _p
+           val result = indices.map(is => Seq(pts(is(0)),pts(is(1))))
+           result.zip(geos).map((ps,g) => g.update(ps))
+        }
+      )()
+
+      val beamBase = Pt[Double](400,250)
+      val beamArgs = (100.v, 100.v, 100.v, 100.v, 30.v)
+      val beamFn = (l1 : Diff, l2: Diff, l3: Diff, l4: Diff, thk: Diff) =>
+        val x0 = beamBase.x
+        val x1 = x0 + l1
+        val x2 = x1 + l2
+        val x3 = x2 + l3
+        val x4 = x3 + l4
+        val xs = Seq[Diff](x0,x1,x2,x3,x4)
+        val y0 = beamBase.y - thk
+        xs.map(x => Pt[Diff](x,beamBase.y)) ++ xs.map(x => Pt(x,y0))
+
+      val p2seq = (p : Seq[Pt[Double]]) =>
+        val fwd = p.slice(0,5).toSeq
+        val rev = p.slice(5,10).toSeq
+        val p1 = fwd ++ (rev.reverse)
+        val ps = fwd.zip(rev).map((p1,p2) => Seq(p1,p2))
+        Seq(p1) ++ ps
+
+      val beamProg = Program(beamArgs, beamFn.tupled,
+        (p,pts) =>
+          val paths = p2seq(pts).map(ps => Path(ps))
+          paths.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent"))
+          paths,
+        (p, pts, paths) =>
+          p2seq(pts).zip(paths).map((points,path) => path.update(points))
+      )()
     }
 
     val dragLayer = VectorLayer {
@@ -293,11 +385,13 @@ object Main:
 
 
 
+
+
     }
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in
     // the `boxes` (blend) and `points` (select) demos.
-    val layers : Seq[Layer] = Seq(colorLayer)
+    val layers : Seq[Layer] = Seq(tweakLayer)
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 

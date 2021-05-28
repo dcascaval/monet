@@ -349,18 +349,24 @@ case class Program[Params <: Tuple, Q](
     vertices = concretePts.zipWithIndex.map((pt,i) =>
       Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
         val Pt(dx, dy) = diffPts(i)
-        val (distX, distY) = (dx - target.x, dy - target.y)
-        val dist = (distX * distX) + (distY * distY)
-        ctx.prepare(Seq(dist))
-        var prevDist = dist.primal
+
+        def dist(diffPt: Pt[Diff], target: Pt[Double]) =
+          val (distX, distY) = (diffPt.x - target.x, diffPt.y - target.y)
+          (distX * distX) + (distY * distY)
+
+
+        val loss = dist(diffPts(i),target) // + 0.1 * (0 until concretePts.length).filter(k => k!=i).map(k => dist(diffPts(k),concretePts(k))).reduce(_+_)
+
+        ctx.prepare(Seq(loss))
+        var prevDist = loss.primal
 
         // We know this is safe because of the homogenous parameter
         val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
 
         // We use a WASM-based version of SLSQP from the `nlopt-js` package
         val newParams = optimize(ps.map(_.primal),
-          (newParams) => { ctx.update(ps, newParams); dist.primal },
-          (newParams) => { ctx.update(ps, newParams); dist.d(ps, 1.0) }
+          (newParams) => { ctx.update(ps, newParams); loss.primal },
+          (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
         )
         ctx.update(ps, newParams)
 
@@ -383,10 +389,21 @@ def Mirror[Params <: Tuple, Q](
   p : Program[Params,Q],
   axis: Axis[Diff]
 ) (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) =
+  def splitList[A](list: Seq[A]) : (Seq[A],Seq[A]) =
+    val l2 = (list.length / 2).toInt
+    (list.slice(0,l2),list.slice(l2,list.length))
   val execute = (ps: Params) =>
     val pts = p.execute(ps)
     pts ++ pts.map(axis.reflect)
-  Program(p.parameters, execute, p.initializeGeometry, p.updateGeometry)
+  val initialize = (ps: Params, pts: Seq[Pt[Double]]) =>
+    val (l1,l2) = splitList(pts)
+    p.initializeGeometry(ps,l1) ++ p.initializeGeometry(ps,l2)
+  val update = (ps: Params, pts: Seq[Pt[Double]], geos: Seq[Q]) =>
+    val (l1,l2) = splitList(pts)
+    val (g1,g2) = splitList(geos)
+    p.updateGeometry(ps,l1,g1)
+    p.updateGeometry(ps,l2,g2)
+  Program(p.parameters, execute, initialize, update)
 
 case class Selector(var pts: Seq[Pt[Double]],
   onSelect: Set[Pt[Double]] => Any,

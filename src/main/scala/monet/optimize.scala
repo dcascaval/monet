@@ -38,7 +38,7 @@ def optimize(
   val t0 = performance.now()
   val res = opt.optimize(initial.toJSArray)
   val t1 = performance.now()
-  println(s"Optimized in $f_evals iterations ($g_evals gradient iters) [${t1-t0}ms]")
+  // println(s"Optimized in $f_evals iterations ($g_evals gradient iters) [${t1-t0}ms]")
   nlopt.GC.flush()
   res.x
 
