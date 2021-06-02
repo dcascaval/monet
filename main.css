@@ -55,4 +55,5 @@ body {
 
 circle {
   transition: r 0.02s linear;
+  transition: opacity 0.25s linear;
 }

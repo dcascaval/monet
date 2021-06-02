@@ -96,8 +96,8 @@ def registerChild(child: Diff, parents: Diff*): Diff =
   child
 
 given (using DiffContext) : Operations[Diff] with
-  def const(c: Double) = Diff(c)
-  def zero: Diff = const(0)
+  def const(c: Double) = Const(c)
+  def zero: Diff = Const(0)
   def v(n: Int, a: Double) = Var(n,a)
   def neg(a: Diff): Diff = registerChild(Sub(zero,a),a)
   def add(a: Diff, b: Diff): Diff = registerChild(Sum(a,b),a,b)
@@ -261,12 +261,21 @@ class Diff (direct: => Double)(using ctx: DiffContext) { self =>
 
   def d(parameters: Seq[Diff], step: Double = 1.0) =
     ctx.d(parameters, Seq(self), step)
+
+  lazy val parameters : Set[Diff] =
+    parents.foldLeft(Set.empty)((result,p) => result ++ p.parameters)
 }
+
+def Const(value: Double)(using ctx: DiffContext) : Diff =
+  new Diff(value) {
+    override lazy val parameters : Set[Diff] = Set()
+  }
 
 def Var(id: Int, value: Double)(using ctx: DiffContext) : Diff =
   new Diff(value) { self =>
     override val reverseDerivative = (d: Double) =>
       self.gradient += d
+    override lazy val parameters : Set[Diff] = Set(self)
   }
 
 def Sum(a : Diff, b: Diff)

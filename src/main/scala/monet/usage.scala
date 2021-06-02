@@ -247,7 +247,7 @@ object Main:
       //
       val chairBase = Pt[Double](100,300)
 
-      val blur = Blur("blur1", 100)
+      val blur = Blur("blur1", 20)
 
       val chairFn = (theta : Diff, legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
         var rTheta = 2.0*math.Pi*(theta / 360.0)
@@ -272,7 +272,7 @@ object Main:
       val indices = Seq((0,1),(1,3),(3,2),(2,0),(0,4),(1,5),(4,5),(0,6),(1,7),(2,8),(3,9))
       val fillIndices = Seq(Seq(0,1,3,2),Seq(0,1,5,4))
 
-      val chairProg = Program(chairArgs, chairFn.tupled,
+      val chairProg = Program2(chairArgs, chairFn.tupled,
         (_,_p) => {
           val pts = Seq(chairBase) ++ _p.concretePoints
           val result = indices.map(is =>
@@ -290,13 +290,19 @@ object Main:
             Path(is.map(i => pts(i)))
           ))
           val circs = pts.map(p =>
-            Circle(p,100,randColor)
+            Circle(p,20,"#FFA500")
               .blur(blur).clip(clip)
-              .attr("opacity",0.5)
+              // .attr("opacity",0.5)
           )
           (result, clip, circs)
         },
-        (_,_p,elements) => {
+        (_,_p,elements, ptPositions) => {
+           val Seq(d1,d2) = ptPositions
+           val ds = d1.zip(d2).map((a,b) => a.dist(b))
+           val dMin = ds.reduce(math.min)
+           val dMax = ds.reduce(math.max)
+           val dt = ds.map(d => (d-dMin)/dMax)
+
            val (geos, clip, circs) = elements
            val pts = Seq(chairBase) ++ _p.concretePoints
            val cen = avg(pts)
@@ -304,6 +310,11 @@ object Main:
            val fills = fillIndices.map(is => is.map(i => pts(i)))
 
            circs.zip(pts).map((c,p) => c.setPosition(p))
+
+           if (dMin != dMax)
+            circs.zip(dt).map((c,t) =>
+                c.attr("opacity",t)
+            )
            clip.content.zip(fills).map((g,ps) => g.update(ps))
            geos.zip(result).map((g,ps) => g.update(ps))
         }

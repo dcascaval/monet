@@ -31,6 +31,11 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def *(other: Double) =
     Pt(x * other, y * other)
 
+  def dist(other: Pt[T]) =
+    val dx = other.x - x
+    val dy = other.y - y
+    (dx*dx) + (dy*dy)
+
   def toSVG =
     s"${x.toInt} ${y.toInt}"
 
@@ -41,6 +46,8 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def map[Q : Operations](f : T => Q): Pt[Q] =
     Pt(f(x),f(y))
 
+object Pt:
+  def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
 
 trait Domable[A]:
   def element(a: A): Element
@@ -54,6 +61,9 @@ given Domable[Circle] with
 given Domable[Rectangle] with
   def element(p: Rectangle): Element = p.path
 
+
+// Extensions to get a builder-pattern style syntax for SVG attributes,
+// Useful for things like styles, hierarchies, clipping, so on.
 extension [T : Domable](element: T)
   def elt : Element = summon[Domable[T]].element(element)
 
@@ -94,8 +104,9 @@ extension [T : Domable](element: T)
     elt.attr("clip-path", s"url(#${c.name})")
     element
 
-object Pt:
-  def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
+  def mask(m: Mask) : T =
+    elt.attr("mask",s"url(#${m.id})")
+    element
 
 def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
   import GenericTSyntax._
@@ -251,9 +262,6 @@ case class Circle(var position: Pt[Double], val radius: String | Int, val fill: 
       case style : String => style
       case grad : Gradient => s"url(#${grad.name})")
     .draw()
-  def mask(m: Mask): Circle =
-    circ.attr("mask",s"url(#${m.id})")
-    self
   def setPosition(p : Pt[Double]) =
     updateCircleCenter(circ, p)
     position = p
@@ -286,9 +294,13 @@ case class Gumball(var center : Pt[Double], onChange: Pt[Double] => Unit)(using 
   val WIDTH = 2
 
   var v = Rectangle(Pt(0,0),Pt(0,0))
-  v.attr("fill","blue").attr("stroke-width","20").attr("stroke","transparent")
+    .attr("fill","blue")
+    .attr("stroke-width","20")
+    .attr("stroke","transparent")
   var h = Rectangle(Pt(0,0),Pt(0,0))
-  h.attr("fill","red").attr("stroke-width","20").attr("stroke","transparent")
+    .attr("fill","red")
+    .attr("stroke-width","20")
+    .attr("stroke","transparent")
 
   val elements = Seq[(Rectangle,Pt[Double]=>Pt[Double])](
     (v,diff => Pt(0,diff.y)),(h,diff => Pt(diff.x,0))
@@ -386,6 +398,19 @@ type Homogenous[H, T <: Tuple] = T match
   case H *: t => Homogenous[H, t]
   case _ => Nothing
 
+def dist_L2(diffPt: Pt[Diff], target: Pt[Double])(using DiffContext) =
+  val (distX, distY) = (diffPt.x - target.x, diffPt.y - target.y)
+  (distX * distX) + (distY * distY)
+
+def vertexLoss(vertices: Seq[Pt[Double]], diffVerts: Seq[Pt[Diff]], exclude : Int)(using DiffContext) =
+  (0 until vertices.length).filter(k => k != exclude).map(k => dist_L2(diffVerts(k),vertices(k))).reduce(_+_)
+
+def paramLoss(parameters: Seq[Diff], originalParameters: Seq[Double])(using DiffContext) : Diff =
+  parameters.zip(originalParameters).foldLeft[Diff](0) { case (sum,(a,b)) =>
+    val diff = b - a
+    sum + (diff*diff)
+  }
+
 // DOM object isn't necessarily "one" object per se. If it's a collection it should be one that maintains its state.
 case class Program[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,
@@ -403,32 +428,97 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
 
     // We know this is safe because of the homogenous parameter
     val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
+    val originalParameters = ps.map(_.primal)
+
     var vertices : Seq[Circle] = null;
     vertices = concretePts.zipWithIndex.map((pt,i) =>
       Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
         val Pt(dx, dy) = diffPts(i)
 
-        def dist(diffPt: Pt[Diff], target: Pt[Double]) =
-          val (distX, distY) = (diffPt.x - target.x, diffPt.y - target.y)
-          (distX * distX) + (distY * distY)
 
-        val loss = dist(diffPts(i),target) + 0.1 * (0 until concretePts.length).filter(k => k!=i).map(k => dist(diffPts(k),concretePts(k))).reduce(_+_)
-
+        val loss = dist_L2(diffPts(i),target) + 0.1 * vertexLoss(concretePts, diffPts, i)
         ctx.prepare(Seq(loss))
-        var prevDist = loss.primal
-
 
         // We use a WASM-based version of SLSQP from the `nlopt-js` package
         val newParams = optimize(ps.map(_.primal),
           (newParams) => { ctx.update(ps, newParams); loss.primal },
           (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
         )
-        ctx.update(ps, newParams)
 
+        val ploss = dist_L2(diffPts(i),target) + 0.1 * paramLoss(ps, originalParameters)
+        ctx.prepare(Seq(ploss))
+        val newParams2 = optimize(ps.map(_.primal),
+          (newParams) => { ctx.update(ps, newParams); loss.primal },
+          (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
+        )
+
+        ctx.update(ps, newParams)
         // Update the path position and the vertex positions
         geometricStructure = execute(parameters)
         concretePts = obj.points(geometricStructure).map(_.map(_.primal))
         updateGeometry(parameters, geometricStructure, elements)
+        for ((newPt,j) <- concretePts.zipWithIndex if j != i)
+          vertices(j).setPosition(newPt)
+      )
+    )
+
+    // Apply styling to be able to see the handle
+    vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
+    self
+}
+
+case class Program2[Params <: Tuple, Geometry, DOMObject](
+  val parameters: Params,
+  val execute : Params => Geometry,
+  val initializeGeometry: (Params, Geometry) => DOMObject,
+  val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
+(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
+import js.JSConverters._
+
+  def apply(): Program2[Params, Geometry, DOMObject] =
+    var geometricStructure = execute(parameters)
+    var diffPts = obj.points(geometricStructure)
+    var concretePts = diffPts.map(_.map(_.primal))
+    val elements = initializeGeometry(parameters,geometricStructure)
+
+
+    // We know this is safe because of the homogenous parameter
+    val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
+    val originalParameters = ps.map(_.primal)
+
+    var vertices : Seq[Circle] = null;
+    vertices = concretePts.zipWithIndex.map((pt,i) =>
+      Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
+        val Pt(dx, dy) = diffPts(i)
+
+        val currentParameters = ps.map(_.primal)
+        val loss = dist_L2(diffPts(i),target) + 0.1 *
+        vertexLoss(concretePts, diffPts, i)
+        ctx.prepare(Seq(loss))
+
+        // We use a WASM-based version of SLSQP from the `nlopt-js` package
+        val newParams = optimize(ps.map(_.primal),
+          (newParams) => { ctx.update(ps, newParams); loss.primal },
+          (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
+        )
+        ctx.update(ps, currentParameters.toJSArray)
+
+        val ploss = dist_L2(diffPts(i),target) + 0.1 * paramLoss(ps, originalParameters)
+        ctx.prepare(Seq(ploss))
+        val newParams2 = optimize(ps.map(_.primal),
+          (newParams) => { ctx.update(ps, newParams); ploss.primal },
+          (newParams) => { ctx.update(ps, newParams); ploss.d(ps, 1.0) }
+        )
+
+        ctx.update(ps, newParams2)
+        val pts2 = obj.points(execute(parameters)).concretePoints
+
+        ctx.update(ps, newParams)
+        // Update the path position and the vertex positions
+        geometricStructure = execute(parameters)
+        concretePts = obj.points(geometricStructure).concretePoints
+
+        updateGeometry(parameters, geometricStructure, elements, Seq(pts2,concretePts))
         for ((newPt,j) <- concretePts.zipWithIndex if j != i)
           vertices(j).setPosition(newPt)
       )
