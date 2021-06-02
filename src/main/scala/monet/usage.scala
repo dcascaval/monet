@@ -171,10 +171,10 @@ object Main:
         )
       val trapProg = Program(50.v, trapezoidFn,
         (_,pts) =>
-          val p = Path(pts)
+          val p = Path(pts.map(p => p.map(_.primal)))
           p.attr("stroke"->"black","stroke-dasharray"->4,"fill"->"transparent")
           Seq(p),
-        (_,pts,paths) => paths(0).update(pts)
+        (_,pts,paths) => paths(0).update(pts.map(p => p.map(_.primal)))
       )
 
       val m1 = Mirror(trapProg, Axis(Pt(trapBase.x-125,0),Pt(trapBase.x-75,50)))
@@ -195,8 +195,8 @@ object Main:
       // arity 1
       val execute = (r: Diff) => square(base2, r)
       Program(r2, execute,
-        (_,pts) => { val p = Path(pts); p.attr("fill","#228B22"); Seq(p) },
-        (_,pts,e) => { val Seq(p) = e; p.update(pts) }
+        (_,geo) => { val p = Path(geo.concretePoints); p.attr("fill","#228B22"); Seq(p) },
+        (_,geo,e) => { val Seq(p) = e; p.update(geo.concretePoints) }
       )
 
       // Great, this works. Let's try a circle?
@@ -206,11 +206,11 @@ object Main:
 
       val circleFn = (r: Diff, t: Diff) =>
         val iters = 12
-        (0 until iters).map(i =>
+        Seq.from((0 until iters).map(i =>
           val p = i.toDouble / iters
           val theta = (t/360.0) + p * (2*math.Pi)
           Pt[Diff](base3.x + r * theta.cos, base3.y + r * theta.sin)
-        )
+        ))
 
       val p1 = Program((r,t), circleFn.tupled,
         { case ((r,_),_) => Seq(Circle(base3,s"${r.toInt}px",g)) },
@@ -218,8 +218,8 @@ object Main:
       )
 
       val p2 = Program((r,t), circleFn.tupled,
-        (_,pts) => pts.map(p => Circle(p,"10px",g)) ,
-        (_,pts,geos) => pts.zip(geos).map((p,e) => e.setPosition(p))
+        (_,geo) => (geo.concretePoints).map(p => Circle(p,"10px",g)) ,
+        (_,geo,refs) => (geo.concretePoints).zip(refs).map((p,e) => e.setPosition(p))
       )
 
       // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one
@@ -256,13 +256,13 @@ object Main:
       val indices = Seq((0,1),(1,3),(3,2),(2,0),(0,4),(1,5),(4,5),(0,6),(1,7),(2,8),(3,9))
       val chairProg = Program(chairArgs, chairFn.tupled,
         (_,_p) => {
-          val pts = Seq(chairBase) ++ _p
+          val pts = Seq(chairBase) ++ _p.concretePoints
           val result = indices.map(is => Path(Seq(pts(is(0)),pts(is(1)))))
           result.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4))
           result
         },
         (_,_p,geos) => {
-           val pts = Seq(chairBase) ++ _p
+           val pts = Seq(chairBase) ++ _p.concretePoints
            val result = indices.map(is => Seq(pts(is(0)),pts(is(1))))
            result.zip(geos).map((ps,g) => g.update(ps))
         }
@@ -288,12 +288,12 @@ object Main:
         Seq(p1) ++ ps
 
       val beamProg = Program(beamArgs, beamFn.tupled,
-        (p,pts) =>
-          val paths = p2seq(pts).map(ps => Path(ps))
+        (p,g) =>
+          val paths = p2seq(g.concretePoints).map(ps => Path(ps))
           paths.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent"))
           paths,
-        (p, pts, paths) =>
-          p2seq(pts).zip(paths).map((points,path) => path.update(points))
+        (p, g, paths) =>
+          p2seq(g.concretePoints).zip(paths).map((points,path) => path.update(points))
       )()
     }
 

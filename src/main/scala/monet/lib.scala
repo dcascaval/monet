@@ -287,36 +287,38 @@ case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
     val d = ((c.x + (c.y - yInt)*slope) / s2) * 2.0
     Pt[T](d - c.x, d * slope - c.y + yInt*2)
 
-trait Geometrizable:
-  def duplicate: Geometrizable
-  def mirror(c: Axis[Double]): Geometrizable
+// trait Geometrizable:
+//   def duplicate: Geometrizable
+//   def mirror(c: Axis[Double]): Geometrizable
 
-trait Geometry[A]:
-  def duplicate(a: A): A
-  def mirror(a: A, c: Axis[Double]): A
+// trait Geometry[A]:
+//   def duplicate(a: A): A
+//   def mirror(a: A, c: Axis[Double]): A
 
-given (using SVGContext): Geometry[Circle] with
-  def duplicate(circle: Circle) =
-    Circle(circle.position, circle.radius, circle.fill)
-  def mirror(circle: Circle, a: Axis[Double]) =
-    Circle(a.reflect(circle.position), circle.radius, circle.fill)
+// given (using SVGContext): Geometry[Circle] with
+//   def duplicate(circle: Circle) =
+//     Circle(circle.position, circle.radius, circle.fill)
+//   def mirror(circle: Circle, a: Axis[Double]) =
+//     Circle(a.reflect(circle.position), circle.radius, circle.fill)
 
-given (using SVGContext): Geometry[Path] with
-  def duplicate(path: Path) =
-    Path(path.points)
-  def mirror(path: Path, a: Axis[Double]) =
-    Path(path.points.map(a.reflect))
+// given (using SVGContext): Geometry[Path] with
+//   def duplicate(path: Path) =
+//     Path(path.points)
+//   def mirror(path: Path, a: Axis[Double]) =
+//     Path(path.points.map(a.reflect))
 
-// We want to be polymorphic over a list of potentially non-homonogenous geometries.
-// As a result we would either have to subclass some abstract geometry class to do it,
-// but then we would be stuck doing some F-bounded polymorphism thing and I don't want to deal,
-// particularly because 99% of the time we don't even really need the specialized methods
-given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] with
-  def apply(a: A): Geometrizable =
-    new Geometrizable {
-      def duplicate = ops.duplicate(a)
-      def mirror(c: Axis[Double]) = ops.mirror(a,c)
-    }
+// // We want to be polymorphic over a list of potentially non-homonogenous geometries.
+// // As a result we would either have to subclass some abstract geometry class to do it,
+// // but then we would be stuck doing some F-bounded polymorphism thing and I don't want to deal,
+// // particularly because 99% of the time we don't even really need the specialized methods
+// given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] with
+//   def apply(a: A): Geometrizable =
+//     new Geometrizable {
+//       def duplicate = ops.duplicate(a)
+//       def mirror(c: Axis[Double]) = ops.mirror(a,c)
+//     }
+
+
 
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
@@ -327,23 +329,51 @@ given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] w
 // and allows for rendering to multiple paths etc. It is up to the author of the
 // path function what level of bidirectionality they want to expose.
 
+trait PointObject[A]:
+  def points(a: A): Seq[Pt[Diff]]
+  def mirror(a: A, axis: Axis[Diff]): A
+  def duplicate(a: A): A
+  def join(a: A, other: A): A
+
+extension [A](a: A)(using obj: PointObject[A])
+  def points : Seq[Pt[Diff]] = obj.points(a)
+  def concretePoints : Seq[Pt[Double]] = obj.points(a).map(_.map(_.primal))
+  def mirror(axis: Axis[Diff]) = obj.mirror(a,axis)
+  def duplicate : A = obj.duplicate(a)
+  def join(other: A) : A = obj.join(a,other)
+
+// Any composition of pointobjects is also a point object. ideally we'd be able to define this
+// for compositions of variable arity
+given [A](using obj: PointObject[A]) : PointObject[(A,A)] with
+  def points(a: (A,A)) : Seq[Pt[Diff]] = obj.points(a._1) ++ obj.points(a._2)
+  def mirror(a: (A,A), axis: Axis[Diff]): (A,A) = (a._1.mirror(axis), a._2.mirror(axis))
+  def duplicate(a: (A,A)): (A,A) = (a._1.duplicate, a._2.duplicate)
+  def join(a: (A,A), other: (A,A)): (A,A) = (a._1.join(other._1), a._2.join(other._2))
+
+given PointObject[Seq[Pt[Diff]]] with
+  def points(pts: Seq[Pt[Diff]]) = pts
+  def mirror(pts: Seq[Pt[Diff]], axis: Axis[Diff]) = pts.map(axis.reflect)
+  def duplicate(pts: Seq[Pt[Diff]]) = ???
+  def join(pts: Seq[Pt[Diff]], other: Seq[Pt[Diff]]) = pts ++ other
 
 type Homogenous[H, T <: Tuple] = T match
   case EmptyTuple => DummyImplicit
   case H *: t => Homogenous[H, t]
   case _ => Nothing
 
-case class Program[Params <: Tuple, Q](
+// DOM object isn't necessarily "one" object per se. If it's a collection it should be one that maintains its state.
+case class Program[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,
-  val execute : Params => Seq[Pt[Diff]],
-  val initializeGeometry: (Params,Seq[Pt[Double]]) => Seq[Q],
-  val updateGeometry: (Params,Seq[Pt[Double]],Seq[Q]) => Unit)
-(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) { self =>
+  val execute : Params => Geometry,
+  val initializeGeometry: (Params, Geometry) => DOMObject,
+  val updateGeometry: (Params, Geometry, DOMObject) => Unit)
+(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
 
-  def apply(): Program[Params,Q] =
-    var diffPts = execute(parameters)
+  def apply(): Program[Params, Geometry, DOMObject] =
+    var geometricStructure = execute(parameters)
+    var diffPts = obj.points(geometricStructure)
     var concretePts = diffPts.map(_.map(_.primal))
-    val elements = initializeGeometry(parameters, concretePts)
+    val elements = initializeGeometry(parameters,geometricStructure)
 
     var vertices : Seq[Circle] = null;
     vertices = concretePts.zipWithIndex.map((pt,i) =>
@@ -371,9 +401,9 @@ case class Program[Params <: Tuple, Q](
         ctx.update(ps, newParams)
 
         // Update the path position and the vertex positions
-        diffPts = execute(parameters)
-        concretePts = diffPts.map(_.map(_.primal))
-        updateGeometry(parameters, concretePts, elements)
+        geometricStructure = execute(parameters)
+        concretePts = obj.points(geometricStructure).map(_.map(_.primal))
+        updateGeometry(parameters, geometricStructure, elements)
         for ((newPt,j) <- concretePts.zipWithIndex if j != i)
           vertices(j).setPosition(newPt)
       )
@@ -385,25 +415,29 @@ case class Program[Params <: Tuple, Q](
 }
 
 
-def Mirror[Params <: Tuple, Q](
-  p : Program[Params,Q],
+def Mirror[Params <: Tuple, Geometry, DOMObject](
+  p : Program[Params, Geometry, DOMObject],
   axis: Axis[Diff]
-) (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params]) =
+) (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) =
   def splitList[A](list: Seq[A]) : (Seq[A],Seq[A]) =
     val l2 = (list.length / 2).toInt
     (list.slice(0,l2),list.slice(l2,list.length))
+
   val execute = (ps: Params) =>
-    val pts = p.execute(ps)
-    pts ++ pts.map(axis.reflect)
-  val initialize = (ps: Params, pts: Seq[Pt[Double]]) =>
-    val (l1,l2) = splitList(pts)
+    val geo = p.execute(ps)
+    (geo, geo.mirror(axis))
+
+  val initialize = (ps: Params, pts: (Geometry, Geometry)) =>
+    val (l1,l2) = pts
     p.initializeGeometry(ps,l1) ++ p.initializeGeometry(ps,l2)
-  val update = (ps: Params, pts: Seq[Pt[Double]], geos: Seq[Q]) =>
-    val (l1,l2) = splitList(pts)
-    val (g1,g2) = splitList(geos)
+
+  val update = (ps: Params, pts: (Geometry,Geometry), geos: (DOMObject, DOMObject)) =>
+    val (l1,l2) = pts
+    val (g1,g2) = geos
     p.updateGeometry(ps,l1,g1)
     p.updateGeometry(ps,l2,g2)
   Program(p.parameters, execute, initialize, update)
+
 
 case class Selector(var pts: Seq[Pt[Double]],
   onSelect: Set[Pt[Double]] => Any,
