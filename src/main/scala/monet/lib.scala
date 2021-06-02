@@ -41,6 +41,52 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def map[Q : Operations](f : T => Q): Pt[Q] =
     Pt(f(x),f(y))
 
+
+trait Domable[A]:
+  def element(a: A): Element
+
+given [T <: Element] : Domable[T] with
+  def element(e: T): T = e
+
+given Domable[Circle] with
+  def element(p: Circle): Element = p.circ
+
+given Domable[Rectangle] with
+  def element(p: Rectangle): Element = p.path
+
+extension [T : Domable](element: T)
+  def elt : Element = summon[Domable[T]].element(element)
+
+  def withClass(cls: String) : T =
+    elt.classList.add(cls)
+    element
+
+  def withStyle(styles: (String,Any)*) : T =
+    val text = styles.map((k,v) => s"${k}:${v};").reduce(_+_)
+    elt.setAttributeNS(null,"style",text)
+    element
+
+  def attr[Q](key: String, value: Q): T =
+    elt.setAttributeNS(null, key, value.toString)
+    element
+
+  def attr(mapping: (String,Any)*): T =
+    for ((k,v) <- mapping) elt.setAttributeNS(null,k,v.toString)
+    element
+
+  def child[Q <: Element](makeChild: => Q): T =
+    elt.appendChild(makeChild)
+    element
+
+  def draw()(using ctx: SVGContext) : T =
+    ctx.current.addElement(elt)
+    element
+
+  def define()(using ctx: SVGContext) : T =
+    ctx.current.addDefinition(elt)
+    element
+
+
 object Pt:
   def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
 
@@ -55,15 +101,27 @@ def svg(tag: String) =
 
 object SVG:
   val URI = "http://www.w3.org/2000/svg"
+  def apply(): SVG =
+    new SVG(using document)
+  def apply(root: Element) : SVG =
+    val result = new SVG(using document)
+    result.dwg = root.asInstanceOf[SVGElement]
+    result
 
-case class SVG()(using doc: Document):
-  val dwg = svg("svg").asInstanceOf[SVGElement]
+class SVG()(using doc: Document):
+  var dwg = svg("svg").asInstanceOf[SVGElement]
   val def_element = svg("defs")
   dwg.appendChild(def_element)
+  val elts = ArrayBuffer[Element]()
 
   def apply(): SVGElement = dwg
   def addDefinition(element: Element): Unit =
     def_element.appendChild(element)
+
+  def addElement(element: Element): Unit =
+    elts += element
+    dwg.appendChild(element)
+
 
 sealed trait Gradient:
   val name : String
@@ -100,42 +158,26 @@ case class Mask(id: String, artwork: Element => Any)(using ctx: SVGContext):
               "width" -> "100%",
               "height" -> "100%"))
   artwork(element)
-  ctx.current.def_element.appendChild(element)
+  element.define()
 
-case class Clip(name: String, element: Element)(using ctx: SVGContext):
+class Clip(val name: String, element: SVGContext ?=> Any)(using outerContext: SVGContext):
+  val innerContext = new SVGContext()
   val root = svg("clipPath").attr("id",name)
-  root.appendChild(element)
   root.define()
+  val newRoot = SVG(root)
+  innerContext.push(newRoot)
+  element(using innerContext)
+  for (e <- innerContext.current.elts)
+    root.appendChild(e)
+
+given Domable[Layer] with
+  def element(a: Layer) = a.element
 
 sealed trait Layer { self =>
   def element: Element
   def draw(w: Double, h: Double): Layer = self
-  def attr[A](key: String, value: A) : Layer =
-    element.setAttributeNS(null, key, s"${value}")
-    self
 }
 
-extension [T <: Element](elt: T)
-  def withClass(cls: String) : T =
-    elt.classList.add(cls)
-    elt
-  def withStyle(styles: (String,Any)*) =
-    val text = styles.map((k,v) => s"${k}:${v};").reduce(_+_)
-    elt.attr("style",text)
-    elt
-  def attr[Q](key: String, value: Q): T =
-    elt.setAttributeNS(null, key, value.toString)
-    elt
-  def attr(mapping: (String,Any)*): T =
-    for ((k,v) <- mapping) attr(k,v)
-    elt
-  def child[Q <: Element](makeChild: => Q) =
-    elt.appendChild(makeChild)
-    elt
-  def draw()(using ctx: SVGContext) =
-    ctx.current.dwg.appendChild(elt)
-  def define()(using ctx: SVGContext) =
-    ctx.current.def_element.appendChild(elt)
 
 extension (canvas : HTMLCanvasElement)
   def context2D : CanvasRenderingContext2D =
@@ -178,10 +220,9 @@ object Layers:
     layer.draw(w, h)
     layer
 
-given Conversion[Circle, Element] with
-  def apply(p: Circle): Element = p.circ
 
-case class Circle(var position: Pt[Double], val radius: String, val fill: String | Gradient)
+
+case class Circle(var position: Pt[Double], val radius: String | Int, val fill: String | Gradient = "transparent")
   (using ctx: SVGContext) { self =>
   val circ = svg("circle")
   updateCircleCenter(circ, position)
@@ -200,8 +241,8 @@ case class Circle(var position: Pt[Double], val radius: String, val fill: String
     position = p
 }
 
-given Conversion[Path, Element] with
-  def apply(p: Path): Element = p.path
+given Domable[Path] with
+  def element(p: Path): Element = p.path
 
 object Path:
   def empty(using SVGContext) : Path = Path(Seq())
@@ -253,9 +294,6 @@ case class Gumball(var center : Pt[Double], onChange: Pt[Double] => Unit)(using 
 
   v.draw()
   h.draw()
-
-given Conversion[Rectangle, Element] with
-  def apply(p: Rectangle): Element = p.path
 
 def order(a: Double, b: Double) =
   if (a<=b) (a,b) else (b,a)

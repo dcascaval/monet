@@ -254,17 +254,26 @@ object Main:
       val chairArgs = (30.v, 100.v, 100.v, 100.v, 10.v, 100.v)
       // TODO: indices is a horrible way to do this
       val indices = Seq((0,1),(1,3),(3,2),(2,0),(0,4),(1,5),(4,5),(0,6),(1,7),(2,8),(3,9))
+      val fillIndices = Seq(Seq(0,1,3,2),Seq(0,1,5,4))
+
       val chairProg = Program(chairArgs, chairFn.tupled,
         (_,_p) => {
           val pts = Seq(chairBase) ++ _p.concretePoints
-          val result = indices.map(is => Path(Seq(pts(is(0)),pts(is(1)))))
-          result.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4))
-          result
+          val result = indices.map(is =>
+            Path(Seq(pts(is(0)),pts(is(1))))
+              .attr("stroke" -> "black", "stroke-dasharray" -> 4)
+          )
+
+          val fills = fillIndices.map(is =>
+            Path(is.map(i => pts(i))).attr("fill","#00000088")
+          )
+          result ++ fills
         },
         (_,_p,geos) => {
            val pts = Seq(chairBase) ++ _p.concretePoints
            val result = indices.map(is => Seq(pts(is(0)),pts(is(1))))
-           result.zip(geos).map((ps,g) => g.update(ps))
+           val fills = fillIndices.map(is => is.map(i => pts(i)))
+           (result ++ fills).zip(geos).map((ps,g) => g.update(ps))
         }
       )()
 
@@ -307,8 +316,7 @@ object Main:
 
       val pts = (0 to NUM_POINTS).map(_ =>
         val pt = Pt(math.random * POINT_SCALE, math.random * POINT_SCALE)
-        val c = Circle(pt,"5px","transparent")
-        c.attr("stroke","black")
+        val c = Circle(pt,"5px","transparent").attr("stroke","black")
         pt -> c
       ).toMap
 
@@ -369,15 +377,13 @@ object Main:
 
       val shapes = pts.map(p => Circle(p,s"${SIZE/2}px",randColor))
       val blur = Blur("blur1",SIZE/2)
-      val clip = Clip("clip1", svg("circle").attr("r"->SIZE,"cx"->(SIZE+BASE.x),"cy"->(SIZE+BASE.y)))
+      val clip = Clip("clip1",
+        Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE).draggable
+      )
 
       for (shape <- shapes)
         shape.attr("filter",s"url(#${blur.name})")
         shape.attr("clip-path",s"url(#${clip.name})")
-
-      val clipControl = Circle(Pt(SIZE+BASE.x,SIZE+BASE.y),s"${SIZE}px","transparent").draggable(newPt =>
-        clip.element.attr("cx"->newPt.x,"cy"->newPt.y)
-      )
 
       val controls = pts.zipWithIndex.map((p,i) => Circle(p,"5px","transparent").draggable(newPt =>
         shapes(i).setPosition(newPt)
