@@ -86,6 +86,13 @@ extension [T : Domable](element: T)
     ctx.current.addDefinition(elt)
     element
 
+  def blur(b: Blur) : T =
+    elt.attr("filter", s"url(#${b.name})")
+    element
+
+  def clip[Q](c: Clip[Q]) : T =
+    elt.attr("clip-path", s"url(#${c.name})")
+    element
 
 object Pt:
   def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
@@ -160,15 +167,27 @@ case class Mask(id: String, artwork: Element => Any)(using ctx: SVGContext):
   artwork(element)
   element.define()
 
-class Clip(val name: String, element: SVGContext ?=> Any)(using outerContext: SVGContext):
+class Clip[T](val name: String, element: SVGContext ?=> T)(using outerContext: SVGContext):
   val innerContext = new SVGContext()
   val root = svg("clipPath").attr("id",name)
   root.define()
   val newRoot = SVG(root)
   innerContext.push(newRoot)
-  element(using innerContext)
+  val content = element(using innerContext)
   for (e <- innerContext.current.elts)
     root.appendChild(e)
+
+class Group[T](val name: String, element: SVGContext ?=> T)(using outerContext: SVGContext):
+  val root = svg("g").attr("id",name)
+  root.draw()
+
+  val newRoot = SVG(root)
+  val innerContext = new SVGContext()
+  innerContext.push(newRoot)
+  val content = element(using innerContext)
+  for (e <- innerContext.current.elts)
+    root.appendChild(e)
+
 
 given Domable[Layer] with
   def element(a: Layer) = a.element
@@ -177,7 +196,6 @@ sealed trait Layer { self =>
   def element: Element
   def draw(w: Double, h: Double): Layer = self
 }
-
 
 extension (canvas : HTMLCanvasElement)
   def context2D : CanvasRenderingContext2D =
@@ -262,6 +280,7 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   path.draw()
 }
 
+
 case class Gumball(var center : Pt[Double], onChange: Pt[Double] => Unit)(using SVGContext):
   val SIZE = 100
   val WIDTH = 2
@@ -325,38 +344,6 @@ case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
     val d = ((c.x + (c.y - yInt)*slope) / s2) * 2.0
     Pt[T](d - c.x, d * slope - c.y + yInt*2)
 
-// trait Geometrizable:
-//   def duplicate: Geometrizable
-//   def mirror(c: Axis[Double]): Geometrizable
-
-// trait Geometry[A]:
-//   def duplicate(a: A): A
-//   def mirror(a: A, c: Axis[Double]): A
-
-// given (using SVGContext): Geometry[Circle] with
-//   def duplicate(circle: Circle) =
-//     Circle(circle.position, circle.radius, circle.fill)
-//   def mirror(circle: Circle, a: Axis[Double]) =
-//     Circle(a.reflect(circle.position), circle.radius, circle.fill)
-
-// given (using SVGContext): Geometry[Path] with
-//   def duplicate(path: Path) =
-//     Path(path.points)
-//   def mirror(path: Path, a: Axis[Double]) =
-//     Path(path.points.map(a.reflect))
-
-// // We want to be polymorphic over a list of potentially non-homonogenous geometries.
-// // As a result we would either have to subclass some abstract geometry class to do it,
-// // but then we would be stuck doing some F-bounded polymorphism thing and I don't want to deal,
-// // particularly because 99% of the time we don't even really need the specialized methods
-// given mkGeometrizable[A](using ops: Geometry[A]) : Conversion[A,Geometrizable] with
-//   def apply(a: A): Geometrizable =
-//     new Geometrizable {
-//       def duplicate = ops.duplicate(a)
-//       def mirror(c: Axis[Double]) = ops.mirror(a,c)
-//     }
-
-
 
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
@@ -413,6 +400,9 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
     var concretePts = diffPts.map(_.map(_.primal))
     val elements = initializeGeometry(parameters,geometricStructure)
 
+
+    // We know this is safe because of the homogenous parameter
+    val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
     var vertices : Seq[Circle] = null;
     vertices = concretePts.zipWithIndex.map((pt,i) =>
       Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
@@ -422,14 +412,11 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
           val (distX, distY) = (diffPt.x - target.x, diffPt.y - target.y)
           (distX * distX) + (distY * distY)
 
-
-        val loss = dist(diffPts(i),target) // + 0.1 * (0 until concretePts.length).filter(k => k!=i).map(k => dist(diffPts(k),concretePts(k))).reduce(_+_)
+        val loss = dist(diffPts(i),target) + 0.1 * (0 until concretePts.length).filter(k => k!=i).map(k => dist(diffPts(k),concretePts(k))).reduce(_+_)
 
         ctx.prepare(Seq(loss))
         var prevDist = loss.primal
 
-        // We know this is safe because of the homogenous parameter
-        val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
 
         // We use a WASM-based version of SLSQP from the `nlopt-js` package
         val newParams = optimize(ps.map(_.primal),

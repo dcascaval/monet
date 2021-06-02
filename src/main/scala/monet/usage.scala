@@ -138,6 +138,20 @@ object Main:
       mkcirc(750, 750)
     }
 
+    def avg(set: Iterable[Pt[Double]]) =
+      var xTotal = 0.0
+      var yTotal = 0.0
+      for (pt <- set)
+        xTotal += pt.x
+        yTotal += pt.y
+      Pt(xTotal/set.size, yTotal/set.size)
+
+    def randColor =
+      val r = (math.random * 255).toInt
+      val g = (math.random * 255).toInt
+      val b = (math.random * 255).toInt
+      s"rgb($r,$g,$b)"
+
     val tweakLayer = VectorLayer {
       val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
 
@@ -213,8 +227,8 @@ object Main:
         ))
 
       val p1 = Program((r,t), circleFn.tupled,
-        { case ((r,_),_) => Seq(Circle(base3,s"${r.toInt}px",g)) },
-        { case ((r,_),_,s) => s(0).attr("r",r.primal.toInt) }
+        { case ((r,_),_) => Circle(base3,r.toInt,g) },
+        { case ((r,_),_,s) => s.attr("r",r.toInt) }
       )
 
       val p2 = Program((r,t), circleFn.tupled,
@@ -232,6 +246,8 @@ object Main:
 
       //
       val chairBase = Pt[Double](100,300)
+
+      val blur = Blur("blur1", 100)
 
       val chairFn = (theta : Diff, legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
         var rTheta = 2.0*math.Pi*(theta / 360.0)
@@ -264,16 +280,32 @@ object Main:
               .attr("stroke" -> "black", "stroke-dasharray" -> 4)
           )
 
-          val fills = fillIndices.map(is =>
-            Path(is.map(i => pts(i))).attr("fill","#00000088")
+          // Visualization structure: we basically want to be able to
+          // have a blurred circle at the position of each of the vertices,
+          // and an overall clipping path that is the union of a bunch of elements,
+          //
+          // Each path should be filled.
+
+          val clip = Clip("clip1",fillIndices.map(is =>
+            Path(is.map(i => pts(i)))
+          ))
+          val circs = pts.map(p =>
+            Circle(p,100,randColor)
+              .blur(blur).clip(clip)
+              .attr("opacity",0.5)
           )
-          result ++ fills
+          (result, clip, circs)
         },
-        (_,_p,geos) => {
+        (_,_p,elements) => {
+           val (geos, clip, circs) = elements
            val pts = Seq(chairBase) ++ _p.concretePoints
+           val cen = avg(pts)
            val result = indices.map(is => Seq(pts(is(0)),pts(is(1))))
            val fills = fillIndices.map(is => is.map(i => pts(i)))
-           (result ++ fills).zip(geos).map((ps,g) => g.update(ps))
+
+           circs.zip(pts).map((c,p) => c.setPosition(p))
+           clip.content.zip(fills).map((g,ps) => g.update(ps))
+           geos.zip(result).map((g,ps) => g.update(ps))
         }
       )()
 
@@ -298,9 +330,10 @@ object Main:
 
       val beamProg = Program(beamArgs, beamFn.tupled,
         (p,g) =>
-          val paths = p2seq(g.concretePoints).map(ps => Path(ps))
-          paths.foreach(s => s.attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent"))
-          paths,
+          p2seq(g.concretePoints).map(ps =>
+            Path(ps)
+              .attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent")
+          ),
         (p, g, paths) =>
           p2seq(g.concretePoints).zip(paths).map((points,path) => path.update(points))
       )()
@@ -321,15 +354,6 @@ object Main:
       ).toMap
 
       var fixedPts = Set[Pt[Double]]()
-
-      def avg(set: Iterable[Pt[Double]]) =
-        var xTotal = 0.0
-        var yTotal = 0.0
-        for (pt <- set)
-          xTotal += pt.x
-          yTotal += pt.y
-        Pt(xTotal/set.size, yTotal/set.size)
-
 
       var gumball : Gumball = null;
       val ss = Selector(pts.keys.toSeq,
@@ -363,11 +387,6 @@ object Main:
       )
     }
 
-    def randColor =
-      val r = (math.random * 255).toInt
-      val g = (math.random * 255).toInt
-      val b = (math.random * 255).toInt
-      s"rgb($r,$g,$b)"
 
     val colorLayer = VectorLayer {
       val SIZE = 200
@@ -375,21 +394,24 @@ object Main:
 
       val pts = (0 to 2).map(i => (0 to 2).map(j => Pt[Double](i*SIZE,j*SIZE))).flatten.map(p => p + BASE)
 
-      val shapes = pts.map(p => Circle(p,s"${SIZE/2}px",randColor))
+      val shapes = pts.map(p => Circle(p,SIZE/2,randColor))
       val blur = Blur("blur1",SIZE/2)
+
       val clip = Clip("clip1",
-        Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE).draggable
+        Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE)
       )
+
+      val clipControl = Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE)
+        .attr("fill","transparent")
+        .draggable(newPt => clip.content.setPosition(newPt))
 
       for (shape <- shapes)
         shape.attr("filter",s"url(#${blur.name})")
         shape.attr("clip-path",s"url(#${clip.name})")
 
-      val controls = pts.zipWithIndex.map((p,i) => Circle(p,"5px","transparent").draggable(newPt =>
+      val controls = pts.zipWithIndex.map((p,i) => Circle(p,5).draggable(newPt =>
         shapes(i).setPosition(newPt)
       ).attr("stroke","black"))
-
-
 
 
 
