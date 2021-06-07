@@ -78,6 +78,7 @@ extension (a: Diff)(using o: Operations[Diff])
   def toInt = o.toInt(a)
 
 extension (a: Double)(using o: Operations[Diff], c : DiffContext)
+  def c = o.const(a)
   def v = o.v(c.freshTemp, a)
   def +(b: Diff) = o.add(o.const(a),b)
   def *(b: Diff) = o.mult(o.const(a),b)

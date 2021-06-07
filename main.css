@@ -57,3 +57,8 @@ circle {
   transition: r 0.02s linear;
   transition: opacity 0.25s linear;
 }
+
+svg text {
+  font-family: sans-serif;
+  font-size: 12px;
+}

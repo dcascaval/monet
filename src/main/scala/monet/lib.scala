@@ -46,6 +46,11 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def map[Q : Operations](f : T => Q): Pt[Q] =
     Pt(f(x),f(y))
 
+
+def rescaleVector(pt: Pt[Double], length: Double) =
+  val ratio = length / math.sqrt(pt.x * pt.x + pt.y * pt.y)
+  pt * ratio
+
 object Pt:
   def unapply[T](pt: Pt[T]) : (T,T) = (pt.x,pt.y)
 
@@ -276,13 +281,19 @@ object Path:
 case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   val path = svg("path")
 
+  var closed = false
+
   def update(newPoints: Seq[Pt[Double]]) =
     points = newPoints
     var pathString =  if (points.length > 0) s"M ${points(0).toSVG}" else ""
-    var rest = if (points.length > 1) points.drop(1).map(p => s"L ${p.toSVG}").reduce(_+_) else ""
+    var rest = if (points.length > 1) points.drop(1).map(p => s"L ${p.toSVG}").reduce(_+_) + (if (closed) " z" else "") else ""
     path
       .attr("d",pathString+rest)
 
+  def close =
+    closed = true
+    update(points)
+    self
 
   update(points)
   path.draw()
@@ -344,6 +355,31 @@ case class Rectangle(var p1: Pt[Double], var p2: Pt[Double])(using ctx: SVGConte
 
   update(p1,p2)
   path.draw()
+
+class LineParameter(name: String, value: Diff, p1: Pt[Diff], p2: Pt[Diff])(using s: SVGContext, d: DiffContext):
+  val path = svg("path").attr(
+      "fill"->"transparent",
+      "stroke"->"red",
+      "stroke-dasharray"->5,
+      "stroke-width"->0.5,
+  )
+
+  val txt = svg("text")
+    .attr("text-anchor","middle")
+
+  def update =
+    txt.innerHTML = s"$name: ${value.toInt}"
+    val (p1x,p1y,p2x,p2y) = (p1.x.toInt, p1.y.toInt , p2.x.toInt , p2.y.toInt)
+    val Pt(ox,oy) = rescaleVector(Pt(p2y-p1y,p2x-p1x),10)
+    val (x1,y1,x2,y2) = (p1x-ox,p1y+oy,p2x-ox,p2y+oy)
+    txt
+      .attr("x",((x2+x1)/2)-ox*2)
+      .attr("y",((y2+y1)/2)+oy*2)
+    path.attr("d",s"M $x1 $y1 L $x2 $y2")
+
+  update
+  path.draw()
+  txt.draw()
 
 case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
   import GenericTSyntax._
@@ -466,6 +502,7 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
     vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
     self
 }
+
 
 case class Program2[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,

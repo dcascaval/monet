@@ -245,19 +245,19 @@ object Main:
       // val p3 = Mirror(p2, axis)()
 
       //
-      val chairBase = Pt[Double](100,300)
+      val chairBase = Pt[Double](100,400)
 
       val blur = Blur("blur1", 20)
 
-      val chairFn = (theta : Diff, legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
-        var rTheta = 2.0*math.Pi*(theta / 360.0)
+      val chairFn = (legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
+        var rTheta = 2.0*math.Pi*(30.0 / 360.0)
         val cost = rTheta.cos; val sint = rTheta.sin
         def up(pt: Pt[Diff], len: Diff)   = Pt(pt.x, pt.y-len)
         def down(pt: Pt[Diff], len: Diff) = Pt(pt.x, pt.y+len)
         def fwd(pt: Pt[Diff], len: Diff)  = Pt(pt.x+len*cost, pt.y+len*sint)
         def iwd(pt: Pt[Diff], len: Diff)  = Pt(pt.x+len*cost, pt.y-len*sint)
 
-        val b1 = Pt[Diff](chairBase.x,chairBase.y)
+        val b1 = up(Pt[Diff](chairBase.x,chairBase.y),legHeight)
         val b2 = iwd(b1, width)
         val o1 = fwd(b1, length)
         val o2 = fwd(b2, length)
@@ -265,16 +265,16 @@ object Main:
         val ls = Seq(b1,b2,o1,o2).map(p => down(p,legHeight))
         val u1 = up(b1, backHeight)
         val u2 = up(b2, backHeight)
-        Seq(b2,o1,o2,u1,u2) ++ ls
+        Seq(b1,b2,o1,o2,u1,u2) ++ ls
 
-      val chairArgs = (30.v, 100.v, 100.v, 100.v, 10.v, 100.v)
+      val chairArgs = (100.v, 100.v, 100.v, 10.v, 100.v)
       // TODO: indices is a horrible way to do this
       val indices = Seq((0,1),(1,3),(3,2),(2,0),(0,4),(1,5),(4,5),(0,6),(1,7),(2,8),(3,9))
       val fillIndices = Seq(Seq(0,1,3,2),Seq(0,1,5,4))
 
       val chairProg = Program2(chairArgs, chairFn.tupled,
         (_,_p) => {
-          val pts = Seq(chairBase) ++ _p.concretePoints
+          val pts = _p.concretePoints
           val result = indices.map(is =>
             Path(Seq(pts(is(0)),pts(is(1))))
               .attr("stroke" -> "black", "stroke-dasharray" -> 4)
@@ -292,22 +292,28 @@ object Main:
           val circs = pts.map(p =>
             Circle(p,20,"#FFA500")
               .blur(blur).clip(clip)
-              // .attr("opacity",0.5)
+              .attr("opacity",0)
           )
-          (result, clip, circs)
+          val lbls = Seq(
+            LineParameter("h",chairArgs._1,_p(0),_p(6)),
+            LineParameter("w",chairArgs._2,_p(5),_p(4))
+          )
+
+          (result, clip, circs, lbls)
         },
         (_,_p,elements, ptPositions) => {
            val Seq(d1,d2) = ptPositions
            val ds = d1.zip(d2).map((a,b) => a.dist(b))
            val dMin = ds.reduce(math.min)
-           val dMax = ds.reduce(math.max)
+           val dMax = Math.max(ds.reduce(math.max),1.0)
            val dt = ds.map(d => (d-dMin)/dMax)
 
-           val (geos, clip, circs) = elements
-           val pts = Seq(chairBase) ++ _p.concretePoints
+           val (geos, clip, circs, lbls) = elements
+           val pts = _p.concretePoints
            val cen = avg(pts)
            val result = indices.map(is => Seq(pts(is(0)),pts(is(1))))
            val fills = fillIndices.map(is => is.map(i => pts(i)))
+           lbls.map(_.update)
 
            circs.zip(pts).map((c,p) => c.setPosition(p))
 
@@ -339,15 +345,103 @@ object Main:
         val ps = fwd.zip(rev).map((p1,p2) => Seq(p1,p2))
         Seq(p1) ++ ps
 
-      val beamProg = Program(beamArgs, beamFn.tupled,
+      val beamProg = Program2(beamArgs, beamFn.tupled,
         (p,g) =>
-          p2seq(g.concretePoints).map(ps =>
+          val ps = g.concretePoints
+          val clip = Clip("c2", Rectangle(ps(0),ps(9)))
+          val circs = ps.map(p => Circle(p,50)
+            .attr("fill","rgb(255,165,0)")
+            .blur(blur).clip(clip)
+            .attr("opacity",0)
+          )
+          val paths = p2seq(ps).map(ps =>
             Path(ps)
               .attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent")
-          ),
-        (p, g, paths) =>
-          p2seq(g.concretePoints).zip(paths).map((points,path) => path.update(points))
-      )()
+          )
+
+          val lbls = Seq(
+            LineParameter("x1",beamArgs._1,g(0),g(1)),
+            LineParameter("x2",beamArgs._2,g(1),g(2)),
+            LineParameter("x3",beamArgs._3,g(2),g(3)),
+            LineParameter("x4",beamArgs._4,g(3),g(4)),
+            LineParameter("y",beamArgs._5,g(5),g(0))
+          )
+
+          (paths, clip, circs, lbls)
+          ,
+        { case (p, g, (paths, clip, circs, lbls), ptPositions) => {
+          val Seq(d1,d2) = ptPositions
+          val ds = d1.zip(d2).map((a,b) => a.dist(b))
+          val dMin = ds.reduce(math.min)
+          val dMax = Math.max(ds.reduce(math.max),1.0)
+          val dt = ds.map(d => (d-dMin)/dMax)
+
+          val ps = g.concretePoints
+          clip.content.update(ps(0),ps(9))
+          ps.zip(circs).map((p,c) => c.setPosition(p))
+          dt.zip(circs).map((d,c) => c.attr("opacity",d))
+          lbls.map(_.update)
+
+          p2seq(ps).zip(paths).map((points,path) => path.update(points))
+        }})()
+
+      val triBase = Pt[Double](100,800)
+      val triArgs = (50.v,50.v)
+      val (triH, triV) = (6,6)
+      val triFn = (w: Diff, h: Diff) =>
+        Seq[Pt[Diff]](
+          Pt(triBase.x, triBase.y),
+          Pt(triBase.x+(w/2),triBase.y-h),
+          Pt(triBase.x+triH*w+w/2,triBase.y-(triV*h))
+        )
+      val triProg = Program2(triArgs, triFn.tupled,
+        (p,g) =>
+          val (w,h) = (p._1.toInt, p._2.toInt)
+          (0 until triV).flatMap(i =>
+            (0 until triH).map(j =>
+                val tx = triBase.x + j * w
+                val ty = triBase.y - (i * h)
+                (Path(Seq(
+                  Pt(tx,ty),
+                  Pt(tx+(w/2),ty-h),
+                  Pt(tx+w,ty)
+                )).attr("fill" -> "transparent")
+                  .attr("stroke" -> "black")
+                  .close
+                ,
+                Path(Seq(
+                  Pt(tx+(w/2),ty-h),
+                  Pt(tx+w,ty),
+                  Pt(tx+w+(w/2),ty-h)
+                )).attr("fill" -> "transparent")
+                  .attr("stroke" -> "black")
+                  .close
+          )))
+        ,
+        (p,g,q,ptPositions) =>
+          val (w,h) = (p._1.toInt, p._2.toInt)
+          val seqs = (0 until triV).flatMap(i =>
+            (0 until triH).map(j =>
+                val tx = triBase.x + j * w
+                val ty = triBase.y - (i * h)
+                (Seq(
+                  Pt(tx,ty),
+                  Pt(tx+(w/2),ty-h),
+                  Pt(tx+w,ty)
+                ),
+                Seq(
+                  Pt(tx+(w/2),ty-h),
+                  Pt(tx+w,ty),
+                  Pt(tx+w+(w/2),ty-h)
+                ))
+          ))
+          seqs.zip(q).map { case ((s1,s2),(p1,p2)) =>
+            p1.update(s1)
+            p2.update(s2)
+          }
+      )
+
+
     }
 
     val dragLayer = VectorLayer {
