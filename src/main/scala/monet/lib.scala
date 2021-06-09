@@ -49,7 +49,7 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def rotate(theta: T) : Pt[T] =
     val sint = theta.sin
     val cost = theta.cos
-    Pt(x*cost - y*sint,x*sint + y*cost)
+    Pt(x*cost - y*sint, - (x*sint + y*cost))
 
   def duplicate: Pt[T] = Pt(x,y)
 
@@ -502,6 +502,7 @@ def paramLoss(parameters: Seq[Diff], originalParameters: Seq[Double])(using Diff
     sum + (diff*diff)
   }
 
+
 // DOM object isn't necessarily "one" object per se. If it's a collection it should be one that maintains its state.
 case class Program[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,
@@ -544,7 +545,7 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
           (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
         )
 
-        ctx.update(ps, newParams)
+
         // Update the path position and the vertex positions
         geometricStructure = execute(parameters)
         concretePts = obj.points(geometricStructure).map(_.map(_.primal))
@@ -567,6 +568,11 @@ case class Program2[Params <: Tuple, Geometry, DOMObject](
   val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
 (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
 import js.JSConverters._
+
+  private var _mode = 0
+  def useParamLoss =
+    _mode = 1
+    self
 
   def apply(): Program2[Params, Geometry, DOMObject] =
     var geometricStructure = execute(parameters)
@@ -594,6 +600,10 @@ import js.JSConverters._
           (newParams) => { ctx.update(ps, newParams); loss.primal },
           (newParams) => { ctx.update(ps, newParams); loss.d(ps, 1.0) }
         )
+        ctx.update(ps, newParams)
+        val gs1 = execute(parameters)
+        val pts1 = obj.points(gs1).concretePoints
+
         ctx.update(ps, currentParameters.toJSArray)
 
         val ploss = dist_L2(diffPts(i),target) + 0.1 * paramLoss(ps, originalParameters)
@@ -604,14 +614,18 @@ import js.JSConverters._
         )
 
         ctx.update(ps, newParams2)
-        val pts2 = obj.points(execute(parameters)).concretePoints
+        val gs2 = execute(parameters)
+        val pts2 = obj.points(gs2).concretePoints
 
-        ctx.update(ps, newParams)
-        // Update the path position and the vertex positions
-        geometricStructure = execute(parameters)
-        concretePts = obj.points(geometricStructure).concretePoints
+        if (_mode == 0)     // VERTEX LOSS
+          ctx.update(ps, newParams)
+          geometricStructure = gs1
+          concretePts = pts1
+        else                // PARAM LOSS
+          geometricStructure = gs2
+          concretePts = pts2
 
-        updateGeometry(parameters, geometricStructure, elements, Seq(pts2,concretePts))
+        updateGeometry(parameters, geometricStructure, elements, Seq(pts1,pts2))
         for ((newPt,j) <- concretePts.zipWithIndex if j != i)
           vertices(j).setPosition(newPt)
       )

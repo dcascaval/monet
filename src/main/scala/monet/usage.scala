@@ -454,6 +454,98 @@ object Main:
             viz.update(dt)
       )()
 
+      val casteBase = Pt(800.0, 600.0)
+      val casteFn = (
+        l1: Diff, l2: Diff, l3: Diff, thk1: Diff, thk2: Diff,
+        towerRbig: Diff, towerRSmall: Diff,
+        extend: Diff
+      ) =>
+        val rr = (t1 : Pt[Diff], t2: Pt[Diff]) =>
+          Seq(t1,Pt(t1.x,t2.y),t2,Pt(t2.x,t1.y))
+
+        val cx = casteBase.x
+        // Lower tower
+        val t1 = rr(
+          Pt(cx - towerRbig, casteBase.y + towerRbig),
+          Pt(cx + towerRbig, casteBase.y - towerRbig))
+
+        val w1y = casteBase.y - towerRbig
+        val t2y = w1y - l1
+
+        val w1 = rr(
+          Pt(cx - thk1, w1y),
+          Pt(cx + thk1, t2y)
+        )
+
+        // Middle Tower
+        val w2y = t2y - 2*towerRSmall
+        val t2 = rr(
+          Pt(cx-towerRSmall,t2y),
+          Pt(cx+towerRSmall,w2y)
+        )
+
+        val w2 = rr(
+          Pt(cx - thk1, w2y),
+          Pt(cx + thk1, w2y - l2)
+        )
+
+        val t3y = (t2y-towerRSmall)
+        val t3x = cx+towerRSmall+l3
+        // Offshoot tower
+        val w3 = rr(
+          Pt(cx+towerRSmall,t3y-thk2),
+          Pt(t3x,t3y+thk2)
+        )
+        val t3 = rr(
+          Pt(t3x,t3y-towerRSmall),
+          Pt(t3x+2*towerRSmall,t3y+towerRSmall)
+        )
+
+        // Pivoted tower
+        val root2 = math.sqrt(2)
+        val t4r2 = 2*towerRbig / root2
+        val mid4x = (w2(1).x+w2(2).x) * 0.5
+        val r4 = Pt(mid4x, w2(2).y - (mid4x - w2(2).x))
+        val r1 = Pt(mid4x, r4.y - (2*t4r2))
+        val r2 = Pt(mid4x + t4r2, r4.y - t4r2)
+        val r3 = Pt(mid4x - t4r2, r4.y - t4r2)
+        val t4 = Seq(r1,r2,r4,r3)
+
+        val theta = 45.0 * 0.01754329
+        val rotRect = rr(
+          Pt(-thk1,0.0),
+          Pt(thk1,extend)
+        )
+        val rotcpt = Pt(mid4x, r2.y)
+        val rotRect1 = rotRect.map(_.rotate(theta)).map(p => p+rotcpt)
+        val rotRect2 = rotRect.map(_.rotate(-theta)).map(p => p+rotcpt)
+
+
+        val tsr2 = towerRSmall / root2
+        val rotTower = rr(Pt(-towerRSmall,-towerRSmall),Pt(towerRSmall,towerRSmall))
+        val rotFix1 = (rotRect1(1)+rotRect1(2))*0.5 + Pt(-tsr2,-tsr2)
+        val rotFix2 = (rotRect2(1)+rotRect2(2))*0.5 + Pt( tsr2,-tsr2)
+        val rotTower1 = rotTower.map(_.rotate(theta)).map(_+rotFix1)
+        val rotTower2 = rotTower.map(_.rotate(-theta)).map(_+rotFix2)
+
+        Seq(t1,w1,t2,w2,w3,t3,t4,rotRect1,rotRect2,rotTower1,rotTower2)
+
+      val casteArgs = (
+        40.v, 30.v, 60.v, 20.v, 20.v,
+        40.v, 30.v,
+        80.v
+      )
+
+      val casteProg = Program2(casteArgs, casteFn.tupled,
+            (_,geo) =>
+              val pts = geo.flatten
+              AmbiguityViz(pts, _ => geo),
+            (_,_,viz,diffs) =>
+              val dt = normalizeOpacities(diffs)
+              viz.update(dt)
+      )().useParamLoss
+
+
     }
 
     val dragLayer = VectorLayer {
