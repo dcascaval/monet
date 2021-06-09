@@ -128,6 +128,9 @@ def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
 def svg(tag: String) =
   document.createElementNS(SVG.URI, tag)
 
+def div(tag: String) =
+  document.createElement(tag)
+
 object SVG:
   val URI = "http://www.w3.org/2000/svg"
   def apply(): SVG =
@@ -218,6 +221,8 @@ given Domable[Layer] with
 sealed trait Layer { self =>
   def element: Element
   def draw(w: Double, h: Double): Layer = self
+  def clear =
+    document.body.removeChild(element)
 }
 
 extension (canvas : HTMLCanvasElement)

@@ -18,6 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import Layers._
 import PixelLayerFunctions._
+import org.scalajs.dom.raw.HTMLSelectElement
 
 extension [A,B](f: A => B)
   def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
@@ -152,102 +153,19 @@ object Main:
       val b = (math.random * 255).toInt
       s"rgb($r,$g,$b)"
 
-    val tweakLayer = VectorLayer {
-      val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
+    val normalizeOpacities = (ptPositions: Seq[Seq[Pt[Double]]]) =>
+      val Seq(d1,d2) = ptPositions
+      val ds = d1.zip(d2).map((a,b) => a.dist(b))
+      val dMin = ds.reduce(math.min)
+      val dMax = Math.max(ds.reduce(math.max),1.0)
+      ds.map(d => (d-dMin)/dMax).map(t => t*t)
 
-      // // Here's what a basic draggable interface looks like. We create
-      // // a set of initial points, make a path out of them, and create a
-      // // set of "vertices" which, when dragged, update the corresponding
-      // // point in the array and cause the path to re-render.
-      // val pts = ArrayBuffer[Pt[Double]]
-      //   (Pt(100,100),Pt(200,200),Pt(150,200),Pt(100,150))
-      // val path = Path(pts.toSeq)
 
-      // for ((pt,i) <- pts.zipWithIndex)
-      //   val c = Circle(pt,"5px","transparent").draggable(p =>
-      //     pts(i) = p
-      //     path.update(pts.toSeq)
-      //   )
-      //   c.withClass("handle")
-      //     .attr("stroke","black")
+    val chairLayer = VectorLayer {
+
       given ctx: DiffContext = new DiffContext()
-
-
-      val trapBase = Pt[Double](950,150)
-      val trapezoidFn = (w: Diff) =>
-        val p1 = Pt(trapBase.x-w,trapBase.y-w)
-        Seq[Pt[Diff]](
-          p1,
-          Pt(trapBase.x+w,trapBase.y+w),
-          Pt(trapBase.x,  trapBase.y+w),
-          Pt(trapBase.x-w,trapBase.y),
-          p1
-        )
-      val trapProg = Program(50.v, trapezoidFn,
-        (_,pts) =>
-          val p = Path(pts.map(p => p.map(_.primal)))
-          p.attr("stroke"->"black","stroke-dasharray"->4,"fill"->"transparent")
-          Seq(p),
-        (_,pts,paths) => paths(0).update(pts.map(p => p.map(_.primal)))
-      )
-
-      // val m1 = Mirror(trapProg, Axis(Pt(trapBase.x-125,0),Pt(trapBase.x-75,50)))
-      // val m2 = Mirror(m1, Axis(Pt(0,trapBase.y+100),Pt(250,trapBase.y+100)))
-      // val m3 = Mirror(m2, Axis(Pt(trapBase.x+99,0),Pt(trapBase.x+101,1000)))
-      // m3()
-
-      def square(base : Pt[Double], r: Diff) : Seq[Pt[Diff]] =
-        Seq(
-          Pt[Diff](base.x,  base.y),
-          Pt[Diff](base.x+r,base.y),
-          Pt[Diff](base.x+r,base.y+r),
-          Pt[Diff](base.x,  base.y+r))
-
-      val r2 = (150.v)
-      val base2 = Pt[Double](100,300)
-
-      // arity 1
-      val execute = (r: Diff) => square(base2, r)
-      Program(r2, execute,
-        (_,geo) => { val p = Path(geo.concretePoints); p.attr("fill","#228B22"); Seq(p) },
-        (_,geo,e) => { val Seq(p) = e; p.update(geo.concretePoints) }
-      )
-
-      // Great, this works. Let's try a circle?
-
-      val base3 = Pt[Double](500, 450)
-      val (r,t) = (100.v, 0.v)
-
-      val circleFn = (r: Diff, t: Diff) =>
-        val iters = 12
-        Seq.from((0 until iters).map(i =>
-          val p = i.toDouble / iters
-          val theta = (t/360.0) + p * (2*math.Pi)
-          Pt[Diff](base3.x + r * theta.cos, base3.y + r * theta.sin)
-        ))
-
-      val p1 = Program((r,t), circleFn.tupled,
-        { case ((r,_),_) => Circle(base3,r.toInt,g) },
-        { case ((r,_),_,s) => s.attr("r",r.toInt) }
-      )
-
-      val p2 = Program((r,t), circleFn.tupled,
-        (_,geo) => (geo.concretePoints).map(p => Circle(p,"10px",g)) ,
-        (_,geo,refs) => (geo.concretePoints).zip(refs).map((p,e) => e.setPosition(p))
-      )
-
-      // Now we need a reasonable abstraction for composing shapes, i.e. a multi-path one
-      // that allows re-use of parameters and generation of paths through operations such
-      // as `Mirror`, `Translate`, `Rotate`, and so on.
-
-      // This is an attempt at such:
-      val axis : Axis[Diff] = Axis(Pt(0,250),Pt(100,250))
-      // val p3 = Mirror(p2, axis)()
-
-      //
-      val chairBase = Pt[Double](100,400)
-
       val blur = Blur("blur1", 20)
+      val chairBase = Pt[Double](100,400)
 
       val chairFn = (legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
         var rTheta = 2.0*math.Pi*(30.0 / 360.0)
@@ -279,13 +197,6 @@ object Main:
             Path(Seq(pts(is(0)),pts(is(1))))
               .attr("stroke" -> "black", "stroke-dasharray" -> 4)
           )
-
-          // Visualization structure: we basically want to be able to
-          // have a blurred circle at the position of each of the vertices,
-          // and an overall clipping path that is the union of a bunch of elements,
-          //
-          // Each path should be filled.
-
           val clip = Clip("clip1",fillIndices.map(is =>
             Path(is.map(i => pts(i)))
           ))
@@ -325,13 +236,10 @@ object Main:
            geos.zip(result).map((g,ps) => g.update(ps))
         }
       )()
+    }
 
-      val normalizeOpacities = (ptPositions: Seq[Seq[Pt[Double]]]) =>
-        val Seq(d1,d2) = ptPositions
-        val ds = d1.zip(d2).map((a,b) => a.dist(b))
-        val dMin = ds.reduce(math.min)
-        val dMax = Math.max(ds.reduce(math.max),1.0)
-        ds.map(d => (d-dMin)/dMax)
+    val beamLayer = VectorLayer {
+      given ctx: DiffContext = new DiffContext()
 
       val beamBase = Pt[Double](400,250)
       val beamArgs = (100.v, 100.v, 100.v, 100.v, 30.v)
@@ -424,7 +332,11 @@ object Main:
             p1.update(s1)
             p2.update(s2)
           }
-      )
+      )().useParamLoss
+    }
+
+    val rotatorLayer = VectorLayer {
+      given ctx: DiffContext = new DiffContext()
 
       val numBlocks = 8
       val rCen = Pt[Double](500,500)
@@ -454,8 +366,12 @@ object Main:
             viz.update(dt)
       )()
 
-      val casteBase = Pt(800.0, 600.0)
+    }
+
+    val castleLayer = VectorLayer {
+      given ctx: DiffContext = new DiffContext()
       val casteFn = (
+        b1 : Diff, b2: Diff,
         l1: Diff, l2: Diff, l3: Diff, thk1: Diff, thk2: Diff,
         towerRbig: Diff, towerRSmall: Diff,
         extend: Diff
@@ -463,13 +379,13 @@ object Main:
         val rr = (t1 : Pt[Diff], t2: Pt[Diff]) =>
           Seq(t1,Pt(t1.x,t2.y),t2,Pt(t2.x,t1.y))
 
-        val cx = casteBase.x
+        val cx = b1
         // Lower tower
         val t1 = rr(
-          Pt(cx - towerRbig, casteBase.y + towerRbig),
-          Pt(cx + towerRbig, casteBase.y - towerRbig))
+          Pt(cx - towerRbig, b2 + towerRbig),
+          Pt(cx + towerRbig, b2 - towerRbig))
 
-        val w1y = casteBase.y - towerRbig
+        val w1y = b2 - towerRbig
         val t2y = w1y - l1
 
         val w1 = rr(
@@ -481,13 +397,11 @@ object Main:
         val w2y = t2y - 2*towerRSmall
         val t2 = rr(
           Pt(cx-towerRSmall,t2y),
-          Pt(cx+towerRSmall,w2y)
-        )
+          Pt(cx+towerRSmall,w2y))
 
         val w2 = rr(
           Pt(cx - thk1, w2y),
-          Pt(cx + thk1, w2y - l2)
-        )
+          Pt(cx + thk1, w2y - l2))
 
         val t3y = (t2y-towerRSmall)
         val t3x = cx+towerRSmall+l3
@@ -531,6 +445,7 @@ object Main:
         Seq(t1,w1,t2,w2,w3,t3,t4,rotRect1,rotRect2,rotTower1,rotTower2)
 
       val casteArgs = (
+        800.v,600.v,
         40.v, 30.v, 60.v, 20.v, 20.v,
         40.v, 30.v,
         80.v
@@ -544,8 +459,6 @@ object Main:
               val dt = normalizeOpacities(diffs)
               viz.update(dt)
       )().useParamLoss
-
-
     }
 
     val dragLayer = VectorLayer {
@@ -628,7 +541,7 @@ object Main:
 
     // TODO: add three.js based 3d layers that handle the boilerplate currently present in
     // the `boxes` (blend) and `points` (select) demos.
-    val layers : Seq[Layer] = Seq(tweakLayer)
+    val layers : Seq[Layer] = Seq()
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
@@ -641,18 +554,45 @@ object Main:
     def drawLayer(layer: Layer): Layer =
       layer.draw(w, h)
 
+    val options = Map[String,Layer](
+      "Chair" -> chairLayer,
+      "Beam" -> beamLayer
+    )
+
+    val rootMenu = div("select").asInstanceOf[HTMLSelectElement]
+    options.map((o,_) =>
+      val d = div("option")
+      d.innerHTML = o
+      d.attr("value", o)
+      rootMenu.appendChild(d))
+
+    document.body.appendChild(
+      rootMenu
+    )
+
+    var currentLayer : Layer = null
+
+    def setLayer(layer: Layer) =
+      if (currentLayer != layer)
+        currentLayer = layer
+        setLayerSize(currentLayer)
+        drawLayer(currentLayer)
+        document.body.insertBefore(currentLayer.element, rootMenu)
+
+    setLayer(chairLayer)
+
+    rootMenu.onchange = e =>
+      val newLayerName = rootMenu.options(rootMenu.selectedIndex).value
+      val newLayer = options(newLayerName)
+      currentLayer.clear
+      setLayer(newLayer)
+
+
     dom.window.addEventListener(
-      "resize",
-      (_: Event) =>
-        w = dom.window.innerWidth
-        h = dom.window.innerHeight
-        layers.map(setLayerSize |> drawLayer)
-    )
-
-    // document.body.appendChild(p)
-    layers.map(layer =>
-      layers.map(setLayerSize).map(drawLayer)
-      document.body.appendChild(layer.element)
-    )
-
-
+    "resize",
+    (_: Event) =>
+      w = dom.window.innerWidth
+      h = dom.window.innerHeight
+      setLayerSize(currentLayer)
+      drawLayer(currentLayer)
+  )
