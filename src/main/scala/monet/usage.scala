@@ -191,10 +191,10 @@ object Main:
         (_,pts,paths) => paths(0).update(pts.map(p => p.map(_.primal)))
       )
 
-      val m1 = Mirror(trapProg, Axis(Pt(trapBase.x-125,0),Pt(trapBase.x-75,50)))
-      val m2 = Mirror(m1, Axis(Pt(0,trapBase.y+100),Pt(250,trapBase.y+100)))
-      val m3 = Mirror(m2, Axis(Pt(trapBase.x+99,0),Pt(trapBase.x+101,1000)))
-      m3()
+      // val m1 = Mirror(trapProg, Axis(Pt(trapBase.x-125,0),Pt(trapBase.x-75,50)))
+      // val m2 = Mirror(m1, Axis(Pt(0,trapBase.y+100),Pt(250,trapBase.y+100)))
+      // val m3 = Mirror(m2, Axis(Pt(trapBase.x+99,0),Pt(trapBase.x+101,1000)))
+      // m3()
 
       def square(base : Pt[Double], r: Diff) : Seq[Pt[Diff]] =
         Seq(
@@ -326,6 +326,13 @@ object Main:
         }
       )()
 
+      val normalizeOpacities = (ptPositions: Seq[Seq[Pt[Double]]]) =>
+        val Seq(d1,d2) = ptPositions
+        val ds = d1.zip(d2).map((a,b) => a.dist(b))
+        val dMin = ds.reduce(math.min)
+        val dMax = Math.max(ds.reduce(math.max),1.0)
+        ds.map(d => (d-dMin)/dMax)
+
       val beamBase = Pt[Double](400,250)
       val beamArgs = (100.v, 100.v, 100.v, 100.v, 30.v)
       val beamFn = (l1 : Diff, l2: Diff, l3: Diff, l4: Diff, thk: Diff) =>
@@ -338,7 +345,7 @@ object Main:
         val y0 = beamBase.y - thk
         xs.map(x => Pt[Diff](x,beamBase.y)) ++ xs.map(x => Pt(x,y0))
 
-      val p2seq = (p : Seq[Pt[Double]]) =>
+      def p2seq[T](p : Seq[Pt[T]]) =
         val fwd = p.slice(0,5).toSeq
         val rev = p.slice(5,10).toSeq
         val p1 = fwd ++ (rev.reverse)
@@ -347,43 +354,21 @@ object Main:
 
       val beamProg = Program2(beamArgs, beamFn.tupled,
         (p,g) =>
-          val ps = g.concretePoints
-          val clip = Clip("c2", Rectangle(ps(0),ps(9)))
-          val circs = ps.map(p => Circle(p,50)
-            .attr("fill","rgb(255,165,0)")
-            .blur(blur).clip(clip)
-            .attr("opacity",0)
-          )
-          val paths = p2seq(ps).map(ps =>
-            Path(ps)
-              .attr("stroke" -> "black", "stroke-dasharray" -> 4, "fill" -> "transparent")
-          )
-
+          val viz = AmbiguityViz(g,_ => p2seq(g))
           val lbls = Seq(
-            LineParameter("x1",beamArgs._1,g(0),g(1)),
-            LineParameter("x2",beamArgs._2,g(1),g(2)),
-            LineParameter("x3",beamArgs._3,g(2),g(3)),
-            LineParameter("x4",beamArgs._4,g(3),g(4)),
-            LineParameter("y",beamArgs._5,g(5),g(0))
+            LineParameter("x1", beamArgs._1, g(0), g(1)),
+            LineParameter("x2", beamArgs._2, g(1), g(2)),
+            LineParameter("x3", beamArgs._3, g(2), g(3)),
+            LineParameter("x4", beamArgs._4, g(3), g(4)),
+            LineParameter("y",  beamArgs._5, g(5), g(0))
           )
-
-          (paths, clip, circs, lbls)
-          ,
-        { case (p, g, (paths, clip, circs, lbls), ptPositions) => {
-          val Seq(d1,d2) = ptPositions
-          val ds = d1.zip(d2).map((a,b) => a.dist(b))
-          val dMin = ds.reduce(math.min)
-          val dMax = Math.max(ds.reduce(math.max),1.0)
-          val dt = ds.map(d => (d-dMin)/dMax)
-
-          val ps = g.concretePoints
-          clip.content.update(ps(0),ps(9))
-          ps.zip(circs).map((p,c) => c.setPosition(p))
-          dt.zip(circs).map((d,c) => c.attr("opacity",d))
+          (viz,lbls),
+         (_, _, result, ptPositions) =>
+          val (viz,lbls) = result
+          val dt = normalizeOpacities(ptPositions)
+          viz.update(dt)
           lbls.map(_.update)
-
-          p2seq(ps).zip(paths).map((points,path) => path.update(points))
-        }})()
+      )()
 
       val triBase = Pt[Double](100,800)
       val triArgs = (50.v,50.v)
@@ -441,6 +426,33 @@ object Main:
           }
       )
 
+      val numBlocks = 8
+      val rCen = Pt[Double](500,500)
+      val radialFn = (r: Diff, t: Diff, l: Diff) =>
+        val diff = Pt(l,t)
+        Seq.from((0 until numBlocks).map(i =>
+          val theta = (i / numBlocks.toDouble) * 2.0 * math.Pi
+          val ctr = Pt(rCen.x + r*(theta.cos), rCen.y + r*(theta.sin))
+          val offs = diff.rotate(theta)
+          (ctr - offs, ctr + offs)))
+
+      val g2seq = (geo: Seq[(Pt[Diff],Pt[Diff])]) =>
+        geo.map((l,r) => Seq(
+                  Pt(l.x,l.y),
+                  Pt(r.x,l.y),
+                  Pt(r.x,r.y),
+                  Pt(l.x,r.y)
+              ))
+
+      val radArgs = (100.v, 10.c, 20.c)
+      val radProg = Program2(radArgs, radialFn.tupled,
+          (_,geo) =>
+            val pts = geo.flatMap((a,b) => Seq(a,b))
+            AmbiguityViz(pts, _ => g2seq(geo)),
+          (_,_,viz,diffs) =>
+            val dt = normalizeOpacities(diffs)
+            viz.update(dt)
+      )()
 
     }
 

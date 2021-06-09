@@ -46,6 +46,12 @@ class Pt[T](var x : T, var y : T)(using Operations[T]):
   def map[Q : Operations](f : T => Q): Pt[Q] =
     Pt(f(x),f(y))
 
+  def rotate(theta: T) : Pt[T] =
+    val sint = theta.sin
+    val cost = theta.cos
+    Pt(x*cost - y*sint,x*sint + y*cost)
+
+  def duplicate: Pt[T] = Pt(x,y)
 
 def rescaleVector(pt: Pt[Double], length: Double) =
   val ratio = length / math.sqrt(pt.x * pt.x + pt.y * pt.y)
@@ -193,6 +199,7 @@ class Clip[T](val name: String, element: SVGContext ?=> T)(using outerContext: S
   for (e <- innerContext.current.elts)
     root.appendChild(e)
 
+
 class Group[T](val name: String, element: SVGContext ?=> T)(using outerContext: SVGContext):
   val root = svg("g").attr("id",name)
   root.draw()
@@ -298,6 +305,41 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   update(points)
   path.draw()
 }
+
+object Clip:
+  var id = 0;
+  def freshTemp =
+    id += 1
+    s"clip_$id"
+
+object Blur:
+  var id = 0;
+  def freshTemp =
+    id += 1
+    s"blur_$id"
+
+case class AmbiguityViz(pts: Seq[Pt[Diff]], exec: Seq[Pt[Diff]] => Seq[Seq[Pt[Diff]]])(using SVGContext):
+  var ipts = exec(pts)
+  val clip = Clip(Clip.freshTemp,ipts.map(r => Path(r.concretePoints)))
+  val rects = ipts.map(r => Path(r.concretePoints)
+      .attr("fill","transparent")
+      .attr("stroke-dasharray", 4)
+      .attr("stroke", "black")
+      .close
+  )
+  val blur = Blur(Blur.freshTemp, 20)
+  val circs = pts.concretePoints.map(p =>
+    Circle(p, 50)
+    .attr("fill","rgb(255,165,0)")
+    .blur(blur).clip(clip)
+    .attr("opacity",0))
+
+  def update(differences: Seq[Double]) =
+    ipts = exec(pts)
+    circs.zip(pts.concretePoints).map((c,p) => c.setPosition(p))
+    clip.content.zip(ipts).map((c,r) => c.update(r.concretePoints))
+    rects.zip(ipts).map((r,p) => r.update(p.concretePoints))
+    circs.zip(differences).map((c,t) => c.attr("opacity", t))
 
 
 case class Gumball(var center : Pt[Double], onChange: Pt[Double] => Unit)(using SVGContext):
@@ -423,11 +465,24 @@ given [A](using obj: PointObject[A]) : PointObject[(A,A)] with
   def duplicate(a: (A,A)): (A,A) = (a._1.duplicate, a._2.duplicate)
   def join(a: (A,A), other: (A,A)): (A,A) = (a._1.join(other._1), a._2.join(other._2))
 
-given PointObject[Seq[Pt[Diff]]] with
-  def points(pts: Seq[Pt[Diff]]) = pts
-  def mirror(pts: Seq[Pt[Diff]], axis: Axis[Diff]) = pts.map(axis.reflect)
-  def duplicate(pts: Seq[Pt[Diff]]) = ???
-  def join(pts: Seq[Pt[Diff]], other: Seq[Pt[Diff]]) = pts ++ other
+// given PointObject[Seq[Pt[Diff]]] with
+//   def points(pts: Seq[Pt[Diff]]) = pts
+//   def mirror(pts: Seq[Pt[Diff]], axis: Axis[Diff]) = pts.map(axis.reflect)
+//   def duplicate(pts: Seq[Pt[Diff]]) = ???
+//   def join(pts: Seq[Pt[Diff]], other: Seq[Pt[Diff]]) = pts ++ other
+
+given [A] (using obj: PointObject[A]) : PointObject[Seq[A]] with
+  def points(a: Seq[A]) : Seq[Pt[Diff]] = a.flatMap(obj.points)
+  def mirror(pts: Seq[A], axis: Axis[Diff]) = ???
+  def duplicate(pts: Seq[A]) = ???
+  def join(pts: Seq[A], other: Seq[A]) = pts ++ other
+
+given PointObject[Pt[Diff]] with
+  def points(pt: Pt[Diff]) = Seq(pt)
+  def mirror(pt: Pt[Diff], axis: Axis[Diff]) = axis.reflect(pt)
+  def duplicate(pt: Pt[Diff]) = pt.duplicate
+  def join(pt: Pt[Diff], o: Pt[Diff]) = ???
+
 
 type Homogenous[H, T <: Tuple] = T match
   case EmptyTuple => DummyImplicit
@@ -467,6 +522,7 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
     val originalParameters = ps.map(_.primal)
 
     var vertices : Seq[Circle] = null;
+    // var lastLoss :
     vertices = concretePts.zipWithIndex.map((pt,i) =>
       Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
         val Pt(dx, dy) = diffPts(i)
