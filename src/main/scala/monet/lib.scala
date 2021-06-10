@@ -22,6 +22,8 @@ import java.nio.channels.ShutdownChannelGroupException
 import org.scalajs.dom.raw.HTMLOptionElement
 import org.scalajs.dom.raw.HTMLSelectElement
 import org.scalajs.dom.raw.HTMLButtonElement
+import org.scalajs.dom.raw.HTMLParagraphElement
+import org.scalajs.dom.raw.HTMLDivElement
 
 class Pt[T](var x : T, var y : T)(using Operations[T]):
   import GenericTSyntax._
@@ -85,6 +87,10 @@ extension [T : Domable](element: T)
     elt.classList.add(cls)
     element
 
+  def withHTML(inner: String) : T =
+    elt.innerHTML = inner
+    element
+
   def withStyle(styles: (String,Any)*) : T =
     val text = styles.map((k,v) => s"${k}:${v};").reduce(_+_)
     elt.setAttributeNS(null,"style",text)
@@ -98,8 +104,8 @@ extension [T : Domable](element: T)
     for ((k,v) <- mapping) elt.setAttributeNS(null,k,v.toString)
     element
 
-  def child[Q <: Element](makeChild: => Q): T =
-    elt.appendChild(makeChild)
+  def child[Q <: Element](makeChild: => Q*): T =
+    for (m <- makeChild) elt.appendChild(m)
     element
 
   def draw()(using ctx: SVGContext) : T =
@@ -131,12 +137,14 @@ def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
 def svg(tag: String) =
   document.createElementNS(SVG.URI, tag)
 
-type Tag = "option" | "select" | "button"
+type Tag = "option" | "select" | "button" | "div" | "p"
 
 type ConstructElement[T <: Tag] = T match {
   case "option" => HTMLOptionElement
   case "select" => HTMLSelectElement
   case "button" => HTMLButtonElement
+  case "div" => HTMLDivElement
+  case "p" => HTMLParagraphElement
   case _ => Element
 }
 

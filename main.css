@@ -71,3 +71,14 @@ button {
   top: 20px;
   left: 100px;
 }
+
+.explain {
+  position: absolute;
+  top: 20px;
+  width: 35vw;
+  right: 50px;
+  font-size: 16px;
+  line-height: 1.2em;
+  user-select: text;
+  /* font-family: sans-serif; */
+}
