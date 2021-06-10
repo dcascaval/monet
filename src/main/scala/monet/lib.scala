@@ -478,6 +478,7 @@ trait PointObject[A]:
 extension [A](a: A)(using obj: PointObject[A])
   def points : Seq[Pt[Diff]] = obj.points(a)
   def concretePoints : Seq[Pt[Double]] = obj.points(a).map(_.map(_.primal))
+  def diffElements : Seq[Diff] = obj.points(a).flatMap(pt => Seq(pt.x,pt.y))
   def mirror(axis: Axis[Diff]) = obj.mirror(a,axis)
   def duplicate : A = obj.duplicate(a)
   def join(other: A) : A = obj.join(a,other)
@@ -608,16 +609,22 @@ import js.JSConverters._
 
     // We know this is safe because of the homogenous parameter
     val ps = parameters.toList.toSeq.asInstanceOf[Seq[Diff]]
-    val originalParameters = ps.map(_.primal)
+    var originalParameters = ps.map(_.primal)
+
+    var spt : Pt[Double] = Pt(0,0)
+    var l = Path(Seq(Pt(0,0),Pt(0,0)))
+      .attr("fill","transparent")
+      .attr("stroke","blue")
+      .attr("stroke-dasharray",2)
 
     var vertices : Seq[Circle] = null;
     vertices = concretePts.zipWithIndex.map((pt,i) =>
       Circle(pt,"5px","transparent").draggable((target : Pt[Double]) =>
+        l.update(Seq(spt,target))
         val Pt(dx, dy) = diffPts(i)
 
         val currentParameters = ps.map(_.primal)
-        val loss = dist_L2(diffPts(i),target) + 0.1 *
-        vertexLoss(concretePts, diffPts, i)
+        val loss = dist_L2(diffPts(i),target) + 0.1 * vertexLoss(concretePts, diffPts, i)
         ctx.prepare(Seq(loss))
 
         // We use a WASM-based version of SLSQP from the `nlopt-js` package
@@ -629,7 +636,7 @@ import js.JSConverters._
         val gs1 = execute(parameters)
         val pts1 = obj.points(gs1).concretePoints
 
-        ctx.update(ps, currentParameters.toJSArray)
+        ctx.update(ps, originalParameters.toJSArray)
 
         val ploss = dist_L2(diffPts(i),target) + 0.1 * paramLoss(ps, originalParameters)
         ctx.prepare(Seq(ploss))
@@ -638,6 +645,7 @@ import js.JSConverters._
           (newParams) => { ctx.update(ps, newParams); ploss.d(ps, 1.0) }
         )
 
+        ctx.prepare(diffPts.diffElements)
         ctx.update(ps, newParams2)
         val gs2 = execute(parameters)
         val pts2 = obj.points(gs2).concretePoints
@@ -653,8 +661,14 @@ import js.JSConverters._
         updateGeometry(parameters, geometricStructure, elements, Seq(pts1,pts2))
         for ((newPt,j) <- concretePts.zipWithIndex if j != i)
           vertices(j).setPosition(newPt)
-      )
-    )
+      ,
+      (pt) =>
+          originalParameters = ps.map(_.primal)
+          spt.set(pt)
+      ,
+      () =>
+        l.update(Seq(Pt(0,0),Pt(0,0)))
+    ))
 
     // Apply styling to be able to see the handle
     vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
@@ -754,17 +768,22 @@ given Draggable[Rectangle] with
     r.update(loc,r.p2 + (loc-r.p1))
 
 extension [A](a: A)(using drg: Draggable[A])
-  def draggable = drg.draggable(a, (_,_) => ())
+  def draggable =
+    drg.draggable(a, _ => (), (_,_) => (), () => ())
   // Callback takes a simple position (no state). Good for simple drags.
-  def draggable(onChange: Pt[Double] => Unit) = drg.draggable(a, (p,_) => onChange(p))
+  def draggable(onChange: Pt[Double] => Unit) =
+    drg.draggable(a, _ => (), (p,_) => onChange(p), () => ())
+  def draggable(onChange: Pt[Double] => Unit, onStart: Pt[Double] => Unit = _ => (), onEnd: () => Unit = () => ()) =
+    drg.draggable(a,onStart,(p,_) => onChange(p),onEnd)
   // Callback takes a pair of position and differential from old location.
-  def draggable(onChange: (Pt[Double], Pt[Double]) => Unit) =  drg.draggable(a, onChange)
+  def draggable(onChange: (Pt[Double], Pt[Double]) => Unit) =
+    drg.draggable(a, _ =>(), onChange, () => ())
 
 sealed trait Draggable[T]:
   def basePoint(geometry: T): Pt[Double]
   def element(geometry: T): Element
   def render(e: T, loc: Pt[Double]): Unit
-  def draggable(geometry: T, onChange: (Pt[Double],Pt[Double]) => Unit): T =
+  def draggable(geometry: T, onStart : Pt[Double] => Unit, onChange: (Pt[Double],Pt[Double]) => Unit, onEnd: () => Unit): T =
     var originalPt : Pt[Double] = Pt(0, 0)
     var originalClick = Pt[Double](0, 0)
     var elt = element(geometry)
@@ -783,12 +802,14 @@ sealed trait Draggable[T]:
     upListener = e => // Clean up
       doc.removeEventListener("mousemove", moveListener)
       doc.removeEventListener("mouseup", upListener)
+      val _ = onEnd()
 
     elt.addEventListener( // Click on the element
       "mousedown",
       (e: MouseEvent) =>
         originalPt.set(basePoint(geometry))
         originalClick = Pt(e.clientX, e.clientY)
+        val _ = onStart(originalPt)
         // Listen for it in the whole document.
         doc.addEventListener("mousemove", moveListener)
         doc.addEventListener("mouseup", upListener)
