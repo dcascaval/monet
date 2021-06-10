@@ -19,6 +19,7 @@ import scala.collection.mutable.ArrayBuffer
 import Layers._
 import PixelLayerFunctions._
 import org.scalajs.dom.raw.HTMLSelectElement
+import org.scalajs.dom.raw.HTMLButtonElement
 
 extension [A,B](f: A => B)
   def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
@@ -161,7 +162,7 @@ object Main:
       ds.map(d => (d-dMin)/dMax).map(t => t*t)
 
 
-    val chairLayer = VectorLayer {
+    val chairLayer = () => VectorLayer {
 
       given ctx: DiffContext = new DiffContext()
       val blur = Blur("blur1", 20)
@@ -238,7 +239,7 @@ object Main:
       )()
     }
 
-    val beamLayer = VectorLayer {
+    val beamLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
 
       val beamBase = Pt[Double](400,250)
@@ -335,7 +336,7 @@ object Main:
       )().useParamLoss
     }
 
-    val rotatorLayer = VectorLayer {
+    val rotatorLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
 
       val numBlocks = 8
@@ -368,7 +369,7 @@ object Main:
 
     }
 
-    val castleLayer = VectorLayer {
+    val castleLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
       val casteFn = (
         b1 : Diff, b2: Diff,
@@ -461,7 +462,7 @@ object Main:
       )().useParamLoss
     }
 
-    val dragLayer = VectorLayer {
+    val dragLayer = () => VectorLayer {
       val ctx = summon[SVGContext]
       val dwg = ctx.current.dwg
 
@@ -510,7 +511,7 @@ object Main:
     }
 
 
-    val colorLayer = VectorLayer {
+    val colorLayer = () => VectorLayer {
       val SIZE = 200
       val BASE = Pt[Double](300,300)
 
@@ -554,9 +555,11 @@ object Main:
     def drawLayer(layer: Layer): Layer =
       layer.draw(w, h)
 
-    val options = Map[String,Layer](
+    val options = Map[String,() => Layer](
       "Chair" -> chairLayer,
-      "Beam" -> beamLayer
+      "Beam" -> beamLayer,
+      "Rotator" -> rotatorLayer,
+      "Layout" -> castleLayer
     )
 
     val rootMenu = div("select").asInstanceOf[HTMLSelectElement]
@@ -570,22 +573,36 @@ object Main:
       rootMenu
     )
 
+
+    var currentLayerName : String = ""
     var currentLayer : Layer = null
 
-    def setLayer(layer: Layer) =
+    var resetButton = div("button").asInstanceOf[HTMLButtonElement]
+    resetButton.innerHTML = "Reset"
+    document.body.appendChild(resetButton)
+
+    resetButton.onclick = e =>
+      currentLayer.clear
+      setLayer(currentLayerName, options(currentLayerName)())
+
+
+    def setLayer(name: String, layer: Layer) =
       if (currentLayer != layer)
+        currentLayerName = name
         currentLayer = layer
         setLayerSize(currentLayer)
         drawLayer(currentLayer)
         document.body.insertBefore(currentLayer.element, rootMenu)
 
-    setLayer(chairLayer)
+    setLayer("Chair",chairLayer())
 
     rootMenu.onchange = e =>
       val newLayerName = rootMenu.options(rootMenu.selectedIndex).value
-      val newLayer = options(newLayerName)
+      val newLayer = options(newLayerName)()
       currentLayer.clear
-      setLayer(newLayer)
+      setLayer(newLayerName, newLayer)
+
+
 
 
     dom.window.addEventListener(
