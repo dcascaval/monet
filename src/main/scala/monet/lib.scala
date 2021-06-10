@@ -19,6 +19,9 @@ import scala.compiletime.ops.string
 import scala.annotation.meta.param
 import org.w3c.dom.css.Rect
 import java.nio.channels.ShutdownChannelGroupException
+import org.scalajs.dom.raw.HTMLOptionElement
+import org.scalajs.dom.raw.HTMLSelectElement
+import org.scalajs.dom.raw.HTMLButtonElement
 
 class Pt[T](var x : T, var y : T)(using Operations[T]):
   import GenericTSyntax._
@@ -128,8 +131,17 @@ def updateCircleCenter[T : Operations](element: Element, pt: Pt[T]) =
 def svg(tag: String) =
   document.createElementNS(SVG.URI, tag)
 
-def div(tag: String) =
-  document.createElement(tag)
+type Tag = "option" | "select" | "button"
+
+type ConstructElement[T <: Tag] = T match {
+  case "option" => HTMLOptionElement
+  case "select" => HTMLSelectElement
+  case "button" => HTMLButtonElement
+  case _ => Element
+}
+
+def div[T<:Tag](tag: T) : ConstructElement[T] =
+  document.createElement(tag).asInstanceOf[ConstructElement[T]]
 
 object SVG:
   val URI = "http://www.w3.org/2000/svg"

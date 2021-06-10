@@ -18,8 +18,6 @@ import scala.collection.mutable.ArrayBuffer
 
 import Layers._
 import PixelLayerFunctions._
-import org.scalajs.dom.raw.HTMLSelectElement
-import org.scalajs.dom.raw.HTMLButtonElement
 
 extension [A,B](f: A => B)
   def |>[C](g: B => C) : A => C = (a: A) => g(f(a))
@@ -166,7 +164,7 @@ object Main:
 
       given ctx: DiffContext = new DiffContext()
       val blur = Blur("blur1", 20)
-      val chairBase = Pt[Double](100,400)
+      val chairBase = Pt[Double](200,400)
 
       val chairFn = (legHeight: Diff, width: Diff, length: Diff, legThick: Diff, backHeight: Diff) =>
         var rTheta = 2.0*math.Pi*(30.0 / 360.0)
@@ -242,7 +240,7 @@ object Main:
     val beamLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
 
-      val beamBase = Pt[Double](400,250)
+      val beamBase = Pt[Double](200,250)
       val beamArgs = (100.v, 100.v, 100.v, 100.v, 30.v)
       val beamFn = (l1 : Diff, l2: Diff, l3: Diff, l4: Diff, thk: Diff) =>
         val x0 = beamBase.x
@@ -279,68 +277,68 @@ object Main:
           lbls.map(_.update)
       )()
 
-      val triBase = Pt[Double](100,800)
-      val triArgs = (50.v,50.v)
-      val (triH, triV) = (6,6)
-      val triFn = (w: Diff, h: Diff) =>
-        Seq[Pt[Diff]](
-          Pt(triBase.x, triBase.y),
-          Pt(triBase.x+(w/2),triBase.y-h),
-          Pt(triBase.x+triH*w+w/2,triBase.y-(triV*h))
-        )
-      val triProg = Program2(triArgs, triFn.tupled,
-        (p,g) =>
-          val (w,h) = (p._1.toInt, p._2.toInt)
-          (0 until triV).flatMap(i =>
-            (0 until triH).map(j =>
-                val tx = triBase.x + j * w
-                val ty = triBase.y - (i * h)
-                (Path(Seq(
-                  Pt(tx,ty),
-                  Pt(tx+(w/2),ty-h),
-                  Pt(tx+w,ty)
-                )).attr("fill" -> "transparent")
-                  .attr("stroke" -> "black")
-                  .close
-                ,
-                Path(Seq(
-                  Pt(tx+(w/2),ty-h),
-                  Pt(tx+w,ty),
-                  Pt(tx+w+(w/2),ty-h)
-                )).attr("fill" -> "transparent")
-                  .attr("stroke" -> "black")
-                  .close
-          )))
-        ,
-        (p,g,q,ptPositions) =>
-          val (w,h) = (p._1.toInt, p._2.toInt)
-          val seqs = (0 until triV).flatMap(i =>
-            (0 until triH).map(j =>
-                val tx = triBase.x + j * w
-                val ty = triBase.y - (i * h)
-                (Seq(
-                  Pt(tx,ty),
-                  Pt(tx+(w/2),ty-h),
-                  Pt(tx+w,ty)
-                ),
-                Seq(
-                  Pt(tx+(w/2),ty-h),
-                  Pt(tx+w,ty),
-                  Pt(tx+w+(w/2),ty-h)
-                ))
-          ))
-          seqs.zip(q).map { case ((s1,s2),(p1,p2)) =>
-            p1.update(s1)
-            p2.update(s2)
-          }
-      )().useParamLoss
+      // val triBase = Pt[Double](100,800)
+      // val triArgs = (50.v,50.v)
+      // val (triH, triV) = (6,6)
+      // val triFn = (w: Diff, h: Diff) =>
+      //   Seq[Pt[Diff]](
+      //     Pt(triBase.x, triBase.y),
+      //     Pt(triBase.x+(w/2),triBase.y-h),
+      //     Pt(triBase.x+triH*w+w/2,triBase.y-(triV*h))
+      //   )
+      // val triProg = Program2(triArgs, triFn.tupled,
+      //   (p,g) =>
+      //     val (w,h) = (p._1.toInt, p._2.toInt)
+      //     (0 until triV).flatMap(i =>
+      //       (0 until triH).map(j =>
+      //           val tx = triBase.x + j * w
+      //           val ty = triBase.y - (i * h)
+      //           (Path(Seq(
+      //             Pt(tx,ty),
+      //             Pt(tx+(w/2),ty-h),
+      //             Pt(tx+w,ty)
+      //           )).attr("fill" -> "transparent")
+      //             .attr("stroke" -> "black")
+      //             .close
+      //           ,
+      //           Path(Seq(
+      //             Pt(tx+(w/2),ty-h),
+      //             Pt(tx+w,ty),
+      //             Pt(tx+w+(w/2),ty-h)
+      //           )).attr("fill" -> "transparent")
+      //             .attr("stroke" -> "black")
+      //             .close
+      //     )))
+      //   ,
+      //   (p,g,q,ptPositions) =>
+      //     val (w,h) = (p._1.toInt, p._2.toInt)
+      //     val seqs = (0 until triV).flatMap(i =>
+      //       (0 until triH).map(j =>
+      //           val tx = triBase.x + j * w
+      //           val ty = triBase.y - (i * h)
+      //           (Seq(
+      //             Pt(tx,ty),
+      //             Pt(tx+(w/2),ty-h),
+      //             Pt(tx+w,ty)
+      //           ),
+      //           Seq(
+      //             Pt(tx+(w/2),ty-h),
+      //             Pt(tx+w,ty),
+      //             Pt(tx+w+(w/2),ty-h)
+      //           ))
+      //     ))
+      //     seqs.zip(q).map { case ((s1,s2),(p1,p2)) =>
+      //       p1.update(s1)
+      //       p2.update(s2)
+      //     }
+      // )().useParamLoss
     }
 
     val rotatorLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
 
       val numBlocks = 8
-      val rCen = Pt[Double](500,500)
+      val rCen = Pt[Double](300,300)
       val radialFn = (r: Diff, t: Diff, l: Diff) =>
         val diff = Pt(l,t)
         Seq.from((0 until numBlocks).map(i =>
@@ -446,7 +444,7 @@ object Main:
         Seq(t1,w1,t2,w2,w3,t3,t4,rotRect1,rotRect2,rotTower1,rotTower2)
 
       val casteArgs = (
-        800.v,600.v,
+        300.v,500.v,
         40.v, 30.v, 60.v, 20.v, 20.v,
         40.v, 30.v,
         80.v
@@ -540,8 +538,6 @@ object Main:
 
     }
 
-    // TODO: add three.js based 3d layers that handle the boilerplate currently present in
-    // the `boxes` (blend) and `points` (select) demos.
     val layers : Seq[Layer] = Seq()
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
@@ -562,7 +558,7 @@ object Main:
       "Layout" -> castleLayer
     )
 
-    val rootMenu = div("select").asInstanceOf[HTMLSelectElement]
+    val rootMenu = div("select")
     options.map((o,_) =>
       val d = div("option")
       d.innerHTML = o
@@ -573,11 +569,10 @@ object Main:
       rootMenu
     )
 
-
     var currentLayerName : String = ""
     var currentLayer : Layer = null
 
-    var resetButton = div("button").asInstanceOf[HTMLButtonElement]
+    var resetButton = div("button")
     resetButton.innerHTML = "Reset"
     document.body.appendChild(resetButton)
 
