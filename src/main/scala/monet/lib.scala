@@ -401,18 +401,18 @@ given StateElem[Curve] with
 
   // HACK WARNING: EXTREME
   def createClip(pts: Seq[Pt[Double]])(using SVGContext) : Curve =
-    val w = dom.window.innerWidth
-    val h = dom.window.innerHeight
-    // imperative programming is the way. this creates itself
-    // in the active SVG context, which is the one in the clip.
-    Path(Seq(Pt(0,0),Pt(w,0),Pt(w,h),Pt(0,h),Pt(0,0)))
+    // val w = dom.window.innerWidth
+    // val h = dom.window.innerHeight
+    // // imperative programming is the way. this creates itself
+    // // in the active SVG context, which is the one in the clip.
+    // Path(Seq(Pt(0,0),Pt(w,0),Pt(w,h),Pt(0,h),Pt(0,0)))
     // Return a dummy
-    Curve(Seq())
+    Curve(pts)
 
   def update(t : Curve, pts: Seq[Pt[Double]])(using SVGContext) : Unit = t.update(pts)
 
   // See above
-  def updateClip(t: Curve, pts: Seq[Pt[Double]])(using SVGContext) : Unit = ()
+  def updateClip(t: Curve, pts: Seq[Pt[Double]])(using SVGContext) : Unit = t.update(pts)
   def close(t: Curve) = t
 
 case class AmbiguityViz[T : Domable](
