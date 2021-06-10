@@ -46,97 +46,14 @@ object Main:
       (e: Event) => nlopt.ready.`then`((_) => render)
     )
 
-  def txt(text: String, classes: String*): Element =
-    val e = document.createElement("p")
-    e.textContent = text
-    for (c <- classes) e.withClass(c)
-    e
-
-  // TODO: ultimately we will want to incorporate the monaco editor with some light scala-like parsing features (via: fastparse? scalameta?) and bidirectional editing functions.
   def render =
-    // threejs()
-
     given Document = document
     given SVGContext = new SVGContext()
 
     document.body.withClass("center")
-    // TODO: text layer API, something better for specifying classes.
-
-    // val p = txt("MONET", "spaced")
 
     var w = dom.window.innerWidth
     var h = dom.window.innerHeight
-
-    // TODO: port the reactive layer from mimic so we can just tweak the values directly.
-    // TODO: we want something like the VectorLayer API here
-    // TODO: add an API for clipping that gets compiled to clip-path properties on the canvas object
-    // TODO: add an API for opacity
-    val pixlayer = PixelLayer {
-      val circPoints = Seq((250, 250, 0.1), (750, 750, 0.1))
-
-      val cx = 250.0; val cy = 250.0
-      val r = Percent(10)
-
-      // Find the tangent from the border point to the circle.
-      // TODO: add a web-assembly based 2d geometry library
-      def targetPoint(sx: Double, sy: Double) =
-        val dx = sx - cx; val dy = sy - cy
-        val (dxr, dyr) = (-dy, dx)
-        val d = sqrt(dx * dx + dy * dy)
-        if (d >= r)
-          val rho = r / d
-          val ad = rho * rho
-          val bd = rho * sqrt(1 - rho * rho)
-          val t1x = cx + ad * dx + bd * dxr
-          val t1y = cy + ad * dy + bd * dyr
-          val t2x = cx + ad * dx - bd * dxr
-          val t2y = cy + ad * dy - bd * dyr
-          (t1x, t1y)
-        else
-          (sx, sy)
-
-      def radialLine(sx: Double, sy: Double) =
-        moveTo(sx, sy)
-        val (tx, ty) = targetPoint(sx, sy)
-        lineTo(tx, ty)
-
-      for (t <- 0 until 100)
-        val dt = t / 100.0
-        radialLine(dt * w, 0)
-        radialLine(w, dt * h)
-        radialLine((1.0 - dt) * w, h)
-        radialLine(0, (1.0 - dt) * h)
-
-      lineWidth(0.5)
-      strokeStyle("#aaa")
-      stroke()
-    }
-
-    // TODO: figure out how extracting the objects for a cross-layer API might work --
-    //       i.e. collect the created objects from the execution context.
-    val veclayer = VectorLayer {
-      // TODO: get a better color API. strings can be colors, but so can... you know, more descriptive representations.
-      val g = RadialGradient("rg1", 0 -> "#9b78ff", 100 -> "#51c9e2")
-
-      val mask = Mask("testMask", e =>
-        e.child(svg("circle")
-          .attr(
-            "cx" -> w/2,
-            "cy" -> h/2,
-            "r" -> "20%",
-            "fill" -> "black"))
-      )
-
-      def mkcirc(x: Int, y: Int) =
-        var circPt = Pt[Double](x, y)
-        // TODO: parametric percentages are a function of width.
-        Circle(circPt, "10%", g)
-          .draggable
-          .mask(mask)
-
-      mkcirc(250, 250)
-      mkcirc(750, 750)
-    }
 
     def avg(set: Iterable[Pt[Double]]) =
       var xTotal = 0.0
@@ -261,7 +178,7 @@ object Main:
 
       val beamProg = Program2(beamArgs, beamFn.tupled,
         (p,g) =>
-          val viz = AmbiguityViz(g,_ => p2seq(g))
+          val viz = AmbiguityViz[Path](g,_ => p2seq(g))
           val lbls = Seq(
             LineParameter("x1", beamArgs._1, g(0), g(1)),
             LineParameter("x2", beamArgs._2, g(1), g(2)),
@@ -303,7 +220,7 @@ object Main:
       val radProg = Program2(radArgs, radialFn.tupled,
           (_,geo) =>
             val pts = geo.flatMap((a,b) => Seq(a,b))
-            AmbiguityViz(pts, _ => g2seq(geo)),
+            AmbiguityViz[Path](pts, _ => g2seq(geo)),
           (_,_,viz,diffs) =>
             val dt = normalizeOpacities(diffs)
             viz.update(dt)
@@ -397,92 +314,35 @@ object Main:
       val casteProg = Program2(casteArgs, casteFn.tupled,
             (_,geo) =>
               val pts = geo.flatten
-              AmbiguityViz(pts, _ => geo),
+              AmbiguityViz[Path](pts, _ => geo),
             (_,_,viz,diffs) =>
               val dt = normalizeOpacities(diffs)
               viz.update(dt)
       )().useParamLoss
     }
 
-    val dragLayer = () => VectorLayer {
-      val ctx = summon[SVGContext]
-      val dwg = ctx.current.dwg
+    val crvLayer = () => VectorLayer {
+      given ctx: DiffContext = new DiffContext()
 
-      val NUM_POINTS = 100
-      val POINT_SCALE = 1000
-
-
-      val pts = (0 to NUM_POINTS).map(_ =>
-        val pt = Pt(math.random * POINT_SCALE, math.random * POINT_SCALE)
-        val c = Circle(pt,"5px","transparent").attr("stroke","black")
-        pt -> c
-      ).toMap
-
-      var fixedPts = Set[Pt[Double]]()
-
-      var gumball : Gumball = null;
-      val ss = Selector(pts.keys.toSeq,
-        ptSet =>
-          for(p <- ptSet) pts(p).attr("fill","red")
-          gumball.show(avg(ptSet))
-        ,
-        ptSet => ptSet.foreach(p =>
-          if (!(fixedPts contains p))
-            pts(p).attr("fill","transparent")
+      val basePt = Pt(100.0,100.0)
+      val crvFn = (h: Diff, w: Diff) =>
+        val dp = Pt[Diff](basePt.x, basePt.y)
+        Seq(
+          dp,
+          dp + Pt(w*0.5,h*0.1),
+          dp + Pt(w,h),
+          dp + Pt(w*1.5,-h*0.5)
         )
-      )
+      val crvArgs = (100.v, 100.v)
 
-      gumball = Gumball(Pt(0,0), diff =>
-        for (oldPt <- ss.selected if !(fixedPts contains oldPt))
-          val oldCirc = pts(oldPt)
-          oldPt.set(oldPt + diff)
-          oldCirc.setPosition(oldPt)
-      )
-
-      document.addEventListener("keydown",(e : KeyboardEvent) =>
-        def updateFixed =
-          ss.clear
-          fixedPts.foreach(p => pts(p).attr("fill","green"))
-        if (e.key == "f")
-          fixedPts ++= ss.selected
-          updateFixed
-        if (e.key == "g")
-          fixedPts --= ss.selected
-          updateFixed
-      )
+      val crvProg = Program2(crvArgs,crvFn.tupled,
+        (_,geo) =>
+          AmbiguityViz[Curve](geo, _ => Seq(geo)),
+        (_,_,viz,diffs) =>
+          val dt = normalizeOpacities(diffs)
+          viz.update(dt)
+      )()
     }
-
-
-    val colorLayer = () => VectorLayer {
-      val SIZE = 200
-      val BASE = Pt[Double](300,300)
-
-      val pts = (0 to 2).map(i => (0 to 2).map(j => Pt[Double](i*SIZE,j*SIZE))).flatten.map(p => p + BASE)
-
-      val shapes = pts.map(p => Circle(p,SIZE/2,randColor))
-      val blur = Blur("blur1",SIZE/2)
-
-      val clip = Clip("clip1",
-        Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE)
-      )
-
-      val clipControl = Circle(Pt(SIZE+BASE.x,SIZE+BASE.y), SIZE)
-        .attr("fill","transparent")
-        .draggable(newPt => clip.content.setPosition(newPt))
-
-      for (shape <- shapes)
-        shape.attr("filter",s"url(#${blur.name})")
-        shape.attr("clip-path",s"url(#${clip.name})")
-
-      val controls = pts.zipWithIndex.map((p,i) => Circle(p,5).draggable(newPt =>
-        shapes(i).setPosition(newPt)
-      ).attr("stroke","black"))
-
-
-
-    }
-
-    val layers : Seq[Layer] = Seq()
 
     // TODO: move the layer utilities elsewhere and allow us just to specify the layer sequence here.
 
@@ -499,7 +359,8 @@ object Main:
       "Chair" -> chairLayer,
       "Beam" -> beamLayer,
       "Rotator" -> rotatorLayer,
-      "Layout" -> castleLayer
+      "Layout" -> castleLayer,
+      "Curve" -> crvLayer,
     )
 
     val rootMenu = div("select")
@@ -532,17 +393,20 @@ object Main:
         drawLayer(currentLayer)
         document.body.insertBefore(currentLayer.element, rootMenu)
 
+    val p = (c: String) =>
+      div("p").withHTML(c)
+
     val text = div("div").child(
-      div("p").withHTML("Use the dropdown to control which program is being manipulated."),
-      div("p").withHTML("Try clicking and dragging on the points. When dragged, the inner part of the shape will highlight orange if the point is ambiguous, i.e our system thinks there are multiple viable places to place this point. Note that some demos contain an anchor point, and as a result some points may not move."),
-      div("p").withHTML("Each demo controls an individual program. When a point is dragged, the program is automatically differentiated and a numerical optimizer is run to determine new program parameters. The program is then re-executed to update the SVG shape. Parameter values are displayed as labels on the dotted lines. As a result the ambiguity values continually update, and their values in the middle of a manipulation also contain information."),
-      div("p").withHTML("Our visualization is designed to: <ul>" +
+      p("Use the dropdown to control which program is being manipulated."),
+      p("Try clicking and dragging on the points. When dragged, the inner part of the shape will highlight orange if the point is ambiguous, i.e our system thinks there are multiple viable places to place this point. Note that some demos contain an anchor point, and as a result some points may not move."),
+      p("Each demo controls an individual program. When a point is dragged, the program is automatically differentiated and a numerical optimizer is run to determine new program parameters. The program is then re-executed to update the SVG shape. Parameter values are displayed as labels on the dotted lines. As a result the ambiguity values continually update, and their values in the middle of a manipulation also contain information."),
+      p("Our visualization is designed to: <ul>" +
         "<li>Work for arbitrary differentiable programs</li>" +
         "<li>Project into the shape's context</li>" +
         "<li>Update interactively as manipulated (since the data being visualized in some sense <em>is</em> the manipulation in the context of the program</li>"+
         "</ul>"),
-      div("p"),
-      div("p").withHTML("Ambiguity is calculated by taking the squared distance between the point locations generated by applying the optimization with different loss function terms in conjunction with the primary loss that minimizes the distance to the edited vertex. In our case, we compare between <em>Vertex Loss</em> and <em>Parameter Loss</em>, where vertex loss attempts to satisfy the edit while minimizing the change in all other vertex positions, and parameter loss satisfies the edit while minimizing the L2 distance between the original and final parameter vectors. Parameters are optimized using the start point of the current mouse stroke as the initial vector (i.e. the location of the last mousedown), denoted by a dotted blue line while dragging."),
+      p(""),
+      p("Ambiguity is calculated by taking the squared distance between the point locations generated by applying the optimization with different loss function terms in conjunction with the primary loss that minimizes the distance to the edited vertex. In our case, we compare between <em>Vertex Loss</em> and <em>Parameter Loss</em>, where vertex loss attempts to satisfy the edit while minimizing the change in all other vertex positions, and parameter loss satisfies the edit while minimizing the L2 distance between the original and final parameter vectors. Parameters are optimized using the start point of the current mouse stroke as the initial vector (i.e. the location of the last mousedown), denoted by a dotted blue line while dragging."),
     ).withClass("explain")
     document.body.appendChild(text)
 

@@ -17,8 +17,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.Set
 import scala.compiletime.ops.string
 import scala.annotation.meta.param
-import org.w3c.dom.css.Rect
-import java.nio.channels.ShutdownChannelGroupException
 import org.scalajs.dom.raw.HTMLOptionElement
 import org.scalajs.dom.raw.HTMLSelectElement
 import org.scalajs.dom.raw.HTMLButtonElement
@@ -76,6 +74,9 @@ given Domable[Circle] with
 
 given Domable[Rectangle] with
   def element(p: Rectangle): Element = p.path
+
+given Domable[Curve] with
+  def element(p: Curve): Element = p.path
 
 
 // Extensions to get a builder-pattern style syntax for SVG attributes,
@@ -322,7 +323,7 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
     path
       .attr("d",pathString+rest)
 
-  def close =
+  def makeClosed =
     closed = true
     update(points)
     self
@@ -330,6 +331,40 @@ case class Path(var points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
   update(points)
   path.draw()
 }
+
+case class Curve(points: Seq[Pt[Double]])(using ctx: SVGContext) { self =>
+  val path = svg("path")
+  // We wanna make a spline through these points. This means figuring out
+  // the control points and the handles. To approximate this we'll just
+  // take each handle as the average of the vectors in each direction.
+
+  def update(points: Seq[Pt[Double]]) =
+    def getPtSaturating(i: Int) : Pt[Double] =
+      val k = if (i < 0) 0 else if (i >= points.length) points.length -1 else i
+      points(k)
+
+    val handles = points.zipWithIndex.map((p,i) =>
+      val prev = getPtSaturating(i-1)
+      val next = getPtSaturating(i+1)
+      val dPrev = p - prev
+      val dNext = next - p
+      val handle = (dPrev + dNext) * 0.25
+      handle
+    )
+
+    val paths = (0 until (points.length-1)).map(i =>
+      val p1 = points(i)
+      val p2 = points(i+1)
+      val h1 = p1 + handles(i)
+      val h2 = p2 - handles(i+1)
+      s"M ${p1.toSVG} C ${h1.toSVG}, ${h2.toSVG}, ${p2.toSVG}"
+    ).mkString(" ")
+    path.attr("d",paths)
+
+  update(points)
+  path.draw()
+}
+
 
 object Clip:
   var id = 0;
@@ -343,15 +378,61 @@ object Blur:
     id += 1
     s"blur_$id"
 
-case class AmbiguityViz(pts: Seq[Pt[Diff]], exec: Seq[Pt[Diff]] => Seq[Seq[Pt[Diff]]])(using SVGContext):
+// See `Curve` for why the clip fns are necessary
+trait StateElem[T]:
+  def create(pts: Seq[Pt[Double]])(using SVGContext) : T
+  def createClip(pts: Seq[Pt[Double]])(using SVGContext) : T
+  def update(t: T, pts: Seq[Pt[Double]])(using SVGContext) : Unit
+  def updateClip(t: T, pts: Seq[Pt[Double]])(using SVGContext) : Unit
+  def close(t: T) : T
+
+extension [T : StateElem](t: T)
+  def close : T = summon[StateElem[T]].close(t)
+
+given StateElem[Path] with
+  def create(pts: Seq[Pt[Double]])(using SVGContext) : Path = Path(pts)
+  def createClip(pts: Seq[Pt[Double]])(using SVGContext) : Path = Path(pts)
+  def update(t : Path, pts: Seq[Pt[Double]])(using SVGContext) : Unit = t.update(pts)
+  def updateClip(t : Path, pts: Seq[Pt[Double]])(using SVGContext) : Unit = t.update(pts)
+  def close(t: Path) = t.makeClosed
+
+given StateElem[Curve] with
+  def create(pts: Seq[Pt[Double]])(using SVGContext) : Curve = Curve(pts)
+
+  // HACK WARNING: EXTREME
+  def createClip(pts: Seq[Pt[Double]])(using SVGContext) : Curve =
+    val w = dom.window.innerWidth
+    val h = dom.window.innerHeight
+    // imperative programming is the way. this creates itself
+    // in the active SVG context, which is the one in the clip.
+    Path(Seq(Pt(0,0),Pt(w,0),Pt(w,h),Pt(0,h),Pt(0,0)))
+    // Return a dummy
+    Curve(Seq())
+
+  def update(t : Curve, pts: Seq[Pt[Double]])(using SVGContext) : Unit = t.update(pts)
+
+  // See above
+  def updateClip(t: Curve, pts: Seq[Pt[Double]])(using SVGContext) : Unit = ()
+  def close(t: Curve) = t
+
+case class AmbiguityViz[T : Domable](
+    pts: Seq[Pt[Diff]],
+    exec: Seq[Pt[Diff]] => Seq[Seq[Pt[Diff]]],
+)(using SVGContext, StateElem[T]):
+  private val pathOps = summon[StateElem[T]]
+
   var ipts = exec(pts)
-  val clip = Clip(Clip.freshTemp,ipts.map(r => Path(r.concretePoints)))
-  val rects = ipts.map(r => Path(r.concretePoints)
+  val clip = Clip(Clip.freshTemp, {
+    ipts.map(r => pathOps.createClip(r.concretePoints))
+  })
+
+  val rects = ipts.map(r => pathOps.create(r.concretePoints)
       .attr("fill","transparent")
       .attr("stroke-dasharray", 4)
       .attr("stroke", "black")
       .close
   )
+
   val blur = Blur(Blur.freshTemp, 20)
   val circs = pts.concretePoints.map(p =>
     Circle(p, 50)
@@ -362,8 +443,8 @@ case class AmbiguityViz(pts: Seq[Pt[Diff]], exec: Seq[Pt[Diff]] => Seq[Seq[Pt[Di
   def update(differences: Seq[Double]) =
     ipts = exec(pts)
     circs.zip(pts.concretePoints).map((c,p) => c.setPosition(p))
-    clip.content.zip(ipts).map((c,r) => c.update(r.concretePoints))
-    rects.zip(ipts).map((r,p) => r.update(p.concretePoints))
+    clip.content.zip(ipts).map((c,r) => pathOps.updateClip(c,r.concretePoints))
+    rects.zip(ipts).map((r,p) => pathOps.update(r,p.concretePoints))
     circs.zip(differences).map((c,t) => c.attr("opacity", t))
 
 
