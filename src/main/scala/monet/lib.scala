@@ -666,7 +666,22 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
     vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
     self
 }
+case class EqProgram[Params <: Tuple, Geometry, DOMObject](
+  val parameters: Params,
+  val execute : Params => Geometry,
+  val initializeGeometry: (Params, Geometry) => DOMObject,
+  val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
+(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
+import js.JSConverters._
+  def apply(): EqProgram[Params, Geometry, DOMObject] =
+    var geometricStructure = execute(parameters)
+    var diffPts = obj.points(geometricStructure)
+    var concretePts = diffPts.map(_.map(_.primal))
+    val elements = initializeGeometry(parameters,geometricStructure)
 
+    self
+
+}
 
 case class Program2[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,
