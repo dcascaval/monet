@@ -540,7 +540,6 @@ case class Axis[T : Operations](a: Pt[T], b: Pt[T]):
     val d = ((c.x + (c.y - yInt)*slope) / s2) * 2.0
     Pt[T](d - c.x, d * slope - c.y + yInt*2)
 
-
 // Each program takes as input a set of initial parameters that serve as the root
 // of our optimization, a function to execute to find the positions of the control
 // points, and a path function that redraws the path given a combination of parameters
@@ -666,22 +665,6 @@ case class Program[Params <: Tuple, Geometry, DOMObject](
     vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
     self
 }
-case class EqProgram[Params <: Tuple, Geometry, DOMObject](
-  val parameters: Params,
-  val execute : Params => Geometry,
-  val initializeGeometry: (Params, Geometry) => DOMObject,
-  val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
-(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
-import js.JSConverters._
-  def apply(): EqProgram[Params, Geometry, DOMObject] =
-    var geometricStructure = execute(parameters)
-    var diffPts = obj.points(geometricStructure)
-    var concretePts = diffPts.map(_.map(_.primal))
-    val elements = initializeGeometry(parameters,geometricStructure)
-
-    self
-
-}
 
 case class Program2[Params <: Tuple, Geometry, DOMObject](
   val parameters: Params,
@@ -770,6 +753,28 @@ import js.JSConverters._
     vertices.foreach(v => v.withClass("handle").attr("stroke","black"))
     self
 }
+
+
+case class EqProgram[Params <: Tuple, Geometry, DOMObject](
+  val parameters: Params,
+  val execute : (Params,EqualityContext[Diff]) => Geometry,
+  val initializeGeometry: (Params, Geometry) => DOMObject,
+  val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
+(using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
+import js.JSConverters._
+  def apply(): EqProgram[Params, Geometry, DOMObject] =
+    val eqCtx = new EqualityContext[Diff]()
+
+    var geometricStructure = execute(parameters, eqCtx)
+    var diffPts = obj.points(geometricStructure)
+    var concretePts = diffPts.map(_.map(_.primal))
+    val elements = initializeGeometry(parameters,geometricStructure)
+
+    // TODO implement
+    self
+
+}
+
 
 
 def Mirror[Params <: Tuple, Geometry, DOMObject](
@@ -955,3 +960,113 @@ object TestArity:
 
   overFn(f1.tupled,f2)
   overFn(f3,(1.v,2.v,3.v))
+
+class EqualityContext[T](using Operations[T]):
+  import GenericTSyntax._
+  val equalities = ArrayBuffer[T]()
+  def fix(a: T, b: T) =
+    equalities.append(a - b)
+
+
+object TestConstraintProp:
+  def run =
+    given ctx: DiffContext = new DiffContext()
+    val TOL = 1e-6
+
+
+    case class Equal(left: Diff, right: Diff):
+      // Conceptually we can think of this as taking an existing gradient
+      // vector and re-aligning it to the closest value that satisfies the
+      // constraint.
+      def propagate(parameters: Seq[Diff], grad: Seq[Double]) =
+        val originalParameters = parameters.map(p => p.primal)
+        ctx.prepare(Seq(left,right))
+        var tempGrad = ArrayBuffer.from(grad)
+
+        // update the parameters with the negative gradient
+        var updateParams = originalParameters.zip(tempGrad).map((p,g) => p-g)
+        ctx.update(parameters.zip(updateParams):_*)
+        // see if we've broken the constraint
+        var differential = left.primal - right.primal
+
+        var k = 0
+        while (math.abs(differential) >= TOL && k < 5)
+          println(s"differential = $differential")
+          // Get a new derivative w/r/t this constraint, splitting
+          // the responsibility equally among the two sides of the equality
+          val steps = Seq(-differential*0.5, differential*0.5)
+          val dG = ctx.d(parameters, Seq(left,right), steps)
+          println(s"dG = $dG")
+
+          // add it to the current gradient
+          for (i <- 0 until tempGrad.length)
+            tempGrad(i) += dG(i)
+          updateParams = originalParameters.zip(tempGrad).map((p,g) => p-(g*0.1))
+          // Re-check the differential
+          ctx.update(parameters.zip(updateParams):_*)
+          differential = left.primal - right.primal
+          k += 1
+
+        println(s"∇$tempGrad [k = $k]")
+        // Converged
+        tempGrad.toSeq
+
+    val a = 3.v
+    val b = 1.5.v
+
+    val exp = (a*a)+b
+    val ctr = Equal(a,2*b)
+
+    val parameters = Seq(a,b)
+    var parameterValues = parameters.map(_.primal)
+
+    val objective = 9.0
+    var k = 0
+    while (math.abs(exp.primal - objective) >= TOL && k < 2)
+      ctx.prepare(Seq(exp))
+      val g = exp.d(parameters, 1)
+      println(s"g = $g")
+      val eq_g = ctr.propagate(parameters, g)
+      parameterValues = parameterValues.zip(eq_g).map((p,g) => p-(g*0.001))
+      ctx.prepare(Seq(exp))
+      ctx.update(parameters.zip(parameterValues):_*)
+      println(parameterValues)
+      k += 1
+
+object TestLagrangeMultipliers:
+  def run =
+    given ctx: DiffContext = new DiffContext()
+    val TOL = 1e-6
+
+    val a = 3.v
+    val b = 1.5.v
+
+    def Equal(a: Diff, b: Diff) = (a-b).abs
+
+    val expression = (a*a)+b
+    val constraint = Equal(a,2*b)
+    val target = 9.0
+
+    // val λ = 1.v
+    // val objective =
+    //   (expression - target).abs + (λ * constraint)
+
+    // val parameters = Seq(a,b,λ)
+    // ctx.prepare(Seq(objective))
+    // val result = optimize(parameters, objective)
+    // val Seq(r_a,r_b,_) = result
+
+    def lagrange(parameters: Seq[Diff], expression: Diff, constraints: Seq[Diff]) =
+      val lagrangeParams = constraints.map(_ => 1.v)
+      val lagrangeTerms = lagrangeParams.zip(constraints).map((p,c) => p*c).reduce(_+_)
+
+      val objective = expression + lagrangeTerms
+      ctx.prepare(Seq(objective))
+      val optParams = parameters ++ lagrangeParams
+      val result = optimize(optParams, objective)
+      result.toSeq.take(parameters.length)
+
+    val Seq(r_a,r_b) = lagrange(Seq(a,b),(expression - target).abs, Seq(constraint))
+    ctx.update(a->r_a, b->r_b)
+
+    println(s"Result = $r_a, $r_b [${expression.primal}]")

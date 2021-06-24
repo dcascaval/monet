@@ -13,6 +13,7 @@ trait Operations[T]:
   def sub(a: T, b: T): T
   def mult(a: T, b: T): T
   def div(a: T, b: T): T
+  def abs(a: T): T
   def sin(a: T): T
   def cos(a: T): T
   def toInt(a: T): Int
@@ -59,6 +60,7 @@ object GenericTSyntax:
     def /(b: T) = o.div(a,b)
     def /(b: Double) = o.div(a,o.const(b))
     def unary_- = o.sub(o.zero, a)
+    def abs = o.abs(a)
     def sin = o.sin(a)
     def cos = o.cos(a)
     def toInt = o.toInt(a)
@@ -73,6 +75,7 @@ extension (a: Diff)(using o: Operations[Diff])
   def /(b: Diff) = o.div(a,b)
   def /(b: Double) = o.div(a,o.const(b))
   def unary_- = o.sub(o.zero, a)
+  def abs = o.abs(a)
   def sin = o.sin(a)
   def cos = o.cos(a)
   def toInt = o.toInt(a)
@@ -105,6 +108,7 @@ given (using DiffContext) : Operations[Diff] with
   def sub(a: Diff, b: Diff): Diff = registerChild(Sub(a,b),a,b)
   def mult(a: Diff, b: Diff): Diff = registerChild(Mul(a,b),a,b)
   def div(a: Diff, b: Diff): Diff = registerChild(Div(a,b),a,b)
+  def abs(a: Diff): Diff = registerChild(Abs(a),a)
   def sin(a: Diff): Diff = registerChild(Sin(a),a)
   def cos(a: Diff): Diff = registerChild(Cos(a),a)
   def toInt(a: Diff): Int = a.primal.toInt
@@ -118,6 +122,7 @@ given Operations[Double] with
   def sub(a: Double, b: Double): Double = a-b
   def mult(a: Double, b: Double): Double = a*b
   def div(a: Double, b: Double): Double = a/b
+  def abs(a: Double): Double = math.abs(a)
   def sin(a: Double): Double = math.sin(a)
   def cos(a: Double): Double = math.cos(a)
   def toInt(a: Double): Int = a.toInt
@@ -148,7 +153,7 @@ class DiffContext:
     currentID
 
   // Gets the derivative of the parameters with respect to the target nodes.
-  def d(parameters: Seq[Diff], targets: Seq[Diff], step: Double = 1.0) =
+  def d(parameters: Seq[Diff], targets: Seq[Diff], steps: Seq[Double]) =
     val stack = Stack[Diff]()
     val seen = Set[Diff]()
 
@@ -158,7 +163,7 @@ class DiffContext:
         seen.add(node)
       stack.push(node)
 
-    def visit(target: Diff) =
+    def visit(target: Diff, step: Double) =
       register(target, step)
       while (stack.length != 0)
         var node = stack.pop()
@@ -169,7 +174,7 @@ class DiffContext:
             register(parent)
           node.reverseDerivative(node.gradient)
 
-    targets.map(visit)
+    targets.zip(steps).map(visit)
     parameters.map(_.gradient)
 
   // The generation mechanism keeps us from performing excess recomputation
@@ -261,7 +266,7 @@ class Diff (direct: => Double)(using ctx: DiffContext) { self =>
     _generation == ctx.currentGeneration
 
   def d(parameters: Seq[Diff], step: Double = 1.0) =
-    ctx.d(parameters, Seq(self), step)
+    ctx.d(parameters, Seq(self), Seq(step))
 
   lazy val parameters : Set[Diff] =
     parents.foldLeft(Set.empty)((result,p) => result ++ p.parameters)
@@ -274,8 +279,7 @@ def Const(value: Double)(using ctx: DiffContext) : Diff =
 
 def Var(id: Int, value: Double)(using ctx: DiffContext) : Diff =
   new Diff(value) { self =>
-    override val reverseDerivative = (d: Double) =>
-      self.gradient += d
+    override val reverseDerivative = (d: Double) => ()
     override lazy val parameters : Set[Diff] = Set(self)
   }
 
@@ -291,6 +295,7 @@ def Mul(a : Diff, b: Diff)
   (using o: Operations[Diff], ctx: DiffContext): Diff =
   new Diff(a.primal * b.primal) {
     override val reverseDerivative = (d: Double) =>
+      // println(s"mul(d = $d) [a = ${a.primal}, b = ${b.primal}]")
       a.gradient += d * b.primal
       b.gradient += a.primal * d
   }
@@ -310,6 +315,14 @@ def Div(a : Diff, b: Diff)
       val gx2 = b.primal * b.primal
       a.gradient += (b.primal * d) / gx2
       b.gradient -= (a.primal * d) / gx2
+  }
+
+def Abs(a: Diff)
+  (using o: Operations[Diff], ctx: DiffContext): Diff =
+  new Diff(math.abs(a.primal)) {
+    override val reverseDerivative = (d: Double) =>
+      val diff = if (a.primal == 0) 0 else if (a.primal > 0) d else -d
+      a.gradient += diff
   }
 
 def Sin(a : Diff)

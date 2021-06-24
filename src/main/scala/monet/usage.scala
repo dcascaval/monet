@@ -43,7 +43,9 @@ object Main:
   def main(args: Array[String]): Unit =
     document.addEventListener(
       "DOMContentLoaded",
-      (e: Event) => nlopt.ready.`then`((_) => render)
+      (e: Event) =>
+        nlopt.ready.`then`((_) => TestLagrangeMultipliers.run)
+
     )
 
   def render =
@@ -228,6 +230,37 @@ object Main:
 
     }
 
+    val twoBoxes = () => VectorLayer {
+      given ctx: DiffContext = new DiffContext()
+
+      def boxFn(params: Tuple5[Diff,Diff,Diff,Diff,Diff], eq: EqualityContext[Diff]) =
+        val (bx,by,r1,r2,t) = params
+        val pts = Seq(
+          Seq(
+            Pt[Diff](0.0,0.0),
+            Pt[Diff](r1,0.0),
+            Pt[Diff](r1,r1),
+            Pt[Diff](0.0,r1)
+          ).map(p => p + Pt(bx,by)),
+          Seq(
+            Pt[Diff](0.0,t),
+            Pt[Diff](r2,t),
+            Pt[Diff](r2,t-r2),
+            Pt[Diff](0.0,t-r2)
+          ).map(p => p + Pt(bx,by))
+        )
+        eq.fix(pts(0)(2).y + 2, pts(1)(2).y)
+        pts
+
+      val boxArgs = (100.v,100.v,20.v,20.v,60.v)
+      val boxProg = EqProgram(boxArgs,boxFn,
+        (_,geo) => geo.map(s => Path(s.concretePoints)),
+        (_,geo,paths,_) =>
+          geo.zip(paths).map((g,p) => p.update(g.concretePoints))
+      )()
+
+    }
+
     val castleLayer = () => VectorLayer {
       given ctx: DiffContext = new DiffContext()
       val casteFn = (
@@ -389,6 +422,7 @@ object Main:
       layer.draw(w, h)
 
     val options = Map[String,() => Layer](
+      "Box"     -> twoBoxes,
       "Chair"   -> chairLayer,
       "Beam"    -> beamLayer,
       "Rotator" -> rotatorLayer,
@@ -397,7 +431,8 @@ object Main:
     )
 
     val rootMenu = div("select")
-    Seq("Chair",
+    Seq("Box",
+        "Chair",
         "Beam",
         "Curve",
         "Rotator",
@@ -434,7 +469,7 @@ object Main:
     val p = (c: String) =>
       div("p").withHTML(c)
 
-    setLayer("Chair",chairLayer())
+    setLayer("Box",twoBoxes())
 
     rootMenu.onchange = e =>
       val newLayerName = rootMenu.options(rootMenu.selectedIndex).value
