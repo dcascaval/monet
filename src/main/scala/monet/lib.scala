@@ -1034,39 +1034,111 @@ object TestConstraintProp:
       k += 1
 
 object TestLagrangeMultipliers:
+  def lagrange(parameters: Seq[Diff], expression: Diff, constraints: Seq[Diff])(using ctx: DiffContext) =
+    val lagrangeParams = constraints.map(_ => 1.v)
+    val lagrangeTerms = lagrangeParams.zip(constraints).map((p,c) => p*c).reduce(_+_)
+
+    val objective = expression + lagrangeTerms
+    ctx.prepare(Seq(objective))
+    val optParams = parameters ++ lagrangeParams
+    val result = optimize(optParams, objective)
+    result.toSeq.take(parameters.length)
+
+  def Equal(a: Diff, b: Diff)(using DiffContext) = (a-b).abs
+  def SquareEqual(a : Diff, b: Diff)(using DiffContext) =
+    val d = a*b
+    d*d
+
   def run =
     given ctx: DiffContext = new DiffContext()
     val TOL = 1e-6
 
-    val a = 3.v
-    val b = 1.5.v
+    def case1 =
+      val a = 3.v
+      val b = 1.5.v
 
-    def Equal(a: Diff, b: Diff) = (a-b).abs
+      val expression = (a*a)+b
+      val constraint = Equal(a,2*b)
+      val target = 9.0
 
-    val expression = (a*a)+b
-    val constraint = Equal(a,2*b)
-    val target = 9.0
+      val Seq(r_a,r_b) = lagrange(Seq(a,b),(expression - target).abs, Seq(constraint))
+      ctx.update(a->r_a, b->r_b)
+      println(s"Result = $r_a, $r_b [${expression.primal}]")
 
-    // val λ = 1.v
-    // val objective =
-    //   (expression - target).abs + (λ * constraint)
+    def case2 =
 
-    // val parameters = Seq(a,b,λ)
-    // ctx.prepare(Seq(objective))
-    // val result = optimize(parameters, objective)
-    // val Seq(r_a,r_b,_) = result
+      // We have more or less the following:
+      // Two squares of side length r1, r2 respectively, with square 2 calculated as subtracting from a height of `t`.
+      // We move the top right point of the upper square up one unit, and constrain the vertical distance between r1 and r2
+      // to stay the same (2).
+      //
+      //           x  <- target
+      // -  -  ____|
+      // |  r2|    |
+      // |  - |____|
+      // t
+      // |  -  ____
+      // |  r1|    |
+      // -  - |____|
 
-    def lagrange(parameters: Seq[Diff], expression: Diff, constraints: Seq[Diff]) =
-      val lagrangeParams = constraints.map(_ => 1.v)
-      val lagrangeTerms = lagrangeParams.zip(constraints).map((p,c) => p*c).reduce(_+_)
 
-      val objective = expression + lagrangeTerms
+      // parameters
+      val r1 = 2.v
+      val r2 = 2.v
+      val t = 6.v
+
+      // points
+      val lowerPoints = Seq[Pt[Diff]](
+        Pt(0.0,0.0),
+        Pt(0+r1,0.0),
+        Pt(r1,r1),
+        Pt(0.0,0+r1)
+      )
+      val upperPoints = Seq[Pt[Diff]](
+        Pt(0.0,t-r2),
+        Pt(0+r2,t-r2),
+        Pt(r2,t),
+        Pt(0.0,t)
+      )
+
+      def distance(p1: Pt[Diff], p2: Pt[Diff]) =
+        val dx = p2.x - p1.x
+        val dy = p2.y - p1.y
+        dx.abs + dy.abs
+
+      // val constraint = SquareEqual(distance(lowerPoints(2),upperPoints(1)), 2.0)
+
+      // Interestingly enough, this constraint works, but the other one doesn't..
+      val constraint = Equal((t-r2)-(r1),2)
+      val objective = distance(upperPoints(2),Pt(2.0,7.0)) // drag out point
+
+
+      println("L(x,λ)")
+      var r = lagrange(Seq(r1,r2,t), objective, Seq(constraint))
+      println(s"r1=${r(0)}, r2=${r(1)}, t=${r(2)} [objective = ${objective.primal}, constraint = ${constraint.primal}]")
+
+      println("SLSQP - Singular")
       ctx.prepare(Seq(objective))
-      val optParams = parameters ++ lagrangeParams
-      val result = optimize(optParams, objective)
-      result.toSeq.take(parameters.length)
+      r = optimizeEq(Seq(r1,r2,t), objective, Seq(constraint))
+      println(s"r1=${r(0)}, r2=${r(1)}, t=${r(2)} [objective = ${objective.primal}, constraint = ${constraint.primal}]")
 
-    val Seq(r_a,r_b) = lagrange(Seq(a,b),(expression - target).abs, Seq(constraint))
-    ctx.update(a->r_a, b->r_b)
+      println("SLSQP - Vector")
+      ctx.prepare(Seq(objective))
+      r = optimizeEqM(Seq(r1,r2,t), objective, Seq(constraint))
+      println(s"r1=${r(0)}, r2=${r(1)}, t=${r(2)} [objective = ${objective.primal}, constraint = ${constraint.primal}]")
 
-    println(s"Result = $r_a, $r_b [${expression.primal}]")
+    case2
+
+// L(x,λ)
+// r1=1.076831057659771e+61, r2=1.0768310576509651e+61, t=-1.0749225866205047e+61 [objective = 2.3150236939486126e+122, constraint = 1.73847608626307e+247]
+// Explodes entirely
+
+// SLSQP - Singular
+// r1=2.841332281541822, r2=2.8364102921420153, t=7.177375356835003 [objective = 0.7310441940134361, constraint = 80.92245370910834]
+
+// not quite right, but getting there - the constraint is still far from being satisfied
+
+// SLSQP - Vector
+// r1=2.8427077710844446, r2=2.4740563482767937, t=6.626744924318656 [objective = 0.7276437451673053, constraint = 80.84317824870969]
+
+// decides to shrink `t` for whatever dumb reason
