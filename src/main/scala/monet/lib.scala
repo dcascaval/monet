@@ -1106,11 +1106,18 @@ object TestLagrangeMultipliers:
         val dy = p2.y - p1.y
         dx.abs + dy.abs
 
-      // val constraint = SquareEqual(distance(lowerPoints(2),upperPoints(1)), 2.0)
+      // Not feasible.
+      // (What we want to happen: constraint gets maintained, and the objective
+      //  is satisfied as close as it possibly can be.)
+      //
+      // What actually happens: the lagrange solver gives some medium result between
+      // satisfying the constraint and achieving the objective, and the other stuff
+      val constraint_distance = SquareEqual(distance(lowerPoints(2),upperPoints(1)), 2.0)
 
-      // Interestingly enough, this constraint works, but the other one doesn't..
-      val constraint = Equal((t-r2)-(r1),2)
+      // Feasible. (Constraint gets maintained)
+      val constraint_y = Equal((t-r2)-(r1),2)
       val objective = distance(upperPoints(2),Pt(2.0,7.0)) // drag out point
+
 
 
       println("L(x,λ)")
