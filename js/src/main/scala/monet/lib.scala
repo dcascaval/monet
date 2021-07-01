@@ -608,6 +608,11 @@ def paramLoss(parameters: Seq[Diff], originalParameters: Seq[Double])(using Diff
     sum + (diff*diff)
   }
 
+given Conversion[js.Array[Double],Seq[Double]] with
+  def apply(arr: js.Array[Double]) =
+    import js.JSConverters._
+    val _arr : scala.collection.mutable.Seq[Double] = arr
+    Seq.from(_arr)
 
 // DOM object isn't necessarily "one" object per se. If it's a collection it should be one that maintains its state.
 case class Program[Params <: Tuple, Geometry, DOMObject](
@@ -672,7 +677,6 @@ case class Program2[Params <: Tuple, Geometry, DOMObject](
   val initializeGeometry: (Params, Geometry) => DOMObject,
   val updateGeometry: (Params, Geometry, DOMObject, Seq[Seq[Pt[Double]]]) => Unit)
 (using ctx: DiffContext, svg: SVGContext, h: Homogenous[Diff,Params], obj: PointObject[Geometry]) { self =>
-import js.JSConverters._
 
   private var _mode = 0
   def useParamLoss =
@@ -715,7 +719,7 @@ import js.JSConverters._
         val gs1 = execute(parameters)
         val pts1 = obj.points(gs1).concretePoints
 
-        ctx.update(ps, originalParameters.toJSArray)
+        ctx.update(ps, originalParameters)
 
         val ploss = dist_L2(diffPts(i),target) + 0.1 * paramLoss(ps, originalParameters)
         ctx.prepare(Seq(ploss))
@@ -1118,7 +1122,7 @@ object TestLagrangeMultipliers:
       val constraint_y = Equal((t-r2)-(r1),2)
       val objective = distance(upperPoints(2),Pt(2.0,7.0)) // drag out point
 
-
+      val constraint = constraint_distance
 
       println("L(x,λ)")
       var r = lagrange(Seq(r1,r2,t), objective, Seq(constraint))

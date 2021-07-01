@@ -44,8 +44,10 @@ object Main:
     document.addEventListener(
       "DOMContentLoaded",
       (e: Event) =>
-        nlopt.ready.`then`((_) => TestLagrangeMultipliers.run)
-
+        nlopt.ready.`then`((_) =>
+          // TestLagrangeMultipliers.run
+          render
+        )
     )
 
   def render =

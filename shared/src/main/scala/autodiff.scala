@@ -4,7 +4,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
 
-trait Operations[T]:
+trait Operations[T] {
   def const(c: Double): T
   def zero: T
   def v(n: Int, a: Double): T
@@ -17,6 +17,7 @@ trait Operations[T]:
   def sin(a: T): T
   def cos(a: T): T
   def toInt(a: T): Int
+}
 
 // Here's the problem:
 // When we are using our AD DSL, we want to be able to use
@@ -208,10 +209,8 @@ class DiffContext:
     for (node <- order if !(seen contains node))
       node.recompute
 
-  // def update(mapping: (Dif))
-  import scala.scalajs.js
 
-  def update(parameters: Seq[Diff], newValues: js.Array[Double]): Unit =
+  def update(parameters: Seq[Diff], newValues: Seq[Double]): Unit =
     for ((node,newValue) <- parameters.zip(newValues))
       node.primal = newValue
     val updatedNodes = parameters
@@ -240,9 +239,8 @@ class DiffContext:
         recompute(recomputeOrder, seen)
 
   def update(mapping: (Diff,Double)*) : Unit =
-    import js.JSConverters._
     val (params, values) = mapping.unzip
-    update(params, values.toJSArray)
+    update(params, values)
 
 class Diff (direct: => Double)(using ctx: DiffContext) { self =>
   val reverseDerivative: Double => Unit = (d: Double) => ()
@@ -329,14 +327,14 @@ def Sin(a : Diff)
   (using o: Operations[Diff], ctx: DiffContext): Diff =
   new Diff(math.sin(a.primal)) {
     override val reverseDerivative = (d: Double) =>
-      a.gradient += d * math.cos(d.primal)
+      a.gradient += d * math.cos(a.primal)
   }
 
 def Cos(a : Diff)
   (using o: Operations[Diff], ctx: DiffContext): Diff =
   new Diff(math.cos(a.primal)) {
     override val reverseDerivative = (d: Double) =>
-      a.gradient -= d * math.sin(d.primal)
+      a.gradient -= d * math.sin(a.primal)
   }
 
 
