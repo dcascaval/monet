@@ -76,9 +76,7 @@ def jvp[T](f: [A] => (Operations[A]) ?=> A => A, arg: T, tangent: T)(using Opera
   // Lift all of the values to JVP
   val inputs = JVP(arg,tangent)
 
-  // Explicitly instantiate the operations that `F` needs.
-  given ops: Operations[JVP[T]] = summon[Operations[JVP[T]]]
-  f(inputs)
+  f[JVP[T]](inputs)
 
 // So, how do we get such a value? We know that f takes `T`, but really it also takes anything as
 // long as that anything has some operations value associated with it.
@@ -98,20 +96,19 @@ extension [T](a: T)(using ops: Operations[T])
 // function is abstract, independent of any context, and basically
 // outlines what shold happen to whatever tracer value we plug in.
 
+def foo[T : Operations](x:T) =
+  val z = x + x
+  z
+
 val f = [T] => (ops: Operations[T]) ?=>
   (x: T) =>
-    given Operations[T] = ops
-    val z = x + x
-    z
-
-// given [T : Operations]  : Conversion[ T => T, [A] => (Operations[A]) => A => A] with
-//   def apply(f: T => T) =
-//     [A] => (o: Operations[A]) => (a: A) => f(a)
+    foo[T](x)
 
 
 object Main extends App:
 
   val df  = deriv(f)
+  println(df(3.0))
   val d2f = deriv(deriv(f))
   println(d2f(3.0))
 
