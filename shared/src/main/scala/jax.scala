@@ -1,7 +1,5 @@
 package jax
 
-import java.rmi.server.Operation
-
 // This is an attempt to mimic the JAX architecture as described in
 // https://jax.readthedocs.io/en/latest/autodidax.html, the main difference
 // being that we have to figure out what types to give Scala to construct
@@ -21,7 +19,11 @@ trait Operations[T] {
   def cos(a: T): T
 }
 
-// Syntactic sugar
+// Syntactic sugar.
+// `extension` is Scala 3's version of `implicit class`, and seems to work in more cases.
+// https://dotty.epfl.ch/docs/reference/contextual/extension-methods.html
+// `using` denotes implicit parameters as arguments.
+// https://dotty.epfl.ch/docs/reference/contextual/using-clauses.html
 extension [T](a: T)(using ops: Operations[T])
   def +(b: T) = ops.add(a, b)
   def *(b: T) = ops.mul(a, b)
@@ -35,6 +37,23 @@ extension [T](a: T)(using ops: Operations[T])
   def +(b: Double) = ops.add(a, ops.const(b))
   def *(b: Double) = ops.mul(a, ops.const(b))
 
+
+// We provide a root operations instance that tells us we can work with Doubles.
+// `givens` are the same as the old `implicit val =`
+// https://dotty.epfl.ch/docs/reference/contextual/givens.html
+given Operations[Double] with
+  def const(a: Double) = a
+  def add(a: Double, b: Double) = a + b
+  def mul(a: Double, b: Double) = a * b
+  def neg(a: Double) = -a
+  def sin(a: Double) = math.sin(a)
+  def cos(a: Double) = math.cos(a)
+
+
+
+
+
+
 // Semantics offers an interface that, with access to operations for an underlying type,
 // can provide different ways of interpreting this type in a wrapper. For example, we
 // can wrap with `Diff`, etc. This corresponds to a MainTrace in JAX, and W[_] corresponds
@@ -45,29 +64,10 @@ abstract class Semantics[W[_],T](using _ops: Operations[T]) extends Operations[W
   def lift(a: T): W[T]
   def lower(a: W[T]): T
 
-// Nothing but a box
-case class Direct[T](val value: T)
-
-class DirectSemantics[T](using ops: Operations[T]) extends Semantics[Direct,T]:
-  def lift(a: T) : Direct[T] = Direct(a)
-  def lower(a: Direct[T]) : T = a.value
-  def add(a: Direct[T], b: Direct[T]) = Direct(a.value + b.value)
-  def mul(a: Direct[T], b: Direct[T]) = Direct(a.value * b.value)
-  def neg(a: Direct[T]) : Direct[T] = Direct(ops.neg(a.value))
-  def sin(a: Direct[T]) : Direct[T] = Direct(ops.sin(a.value))
-  def cos(a: Direct[T]) : Direct[T] = Direct(ops.cos(a.value))
-
-given Operations[Double] with
-  def const(a: Double) = a
-  def add(a: Double, b: Double) = a + b
-  def mul(a: Double, b: Double) = a * b
-  def neg(a: Double) = -a
-  def sin(a: Double) = math.sin(a)
-  def cos(a: Double) = math.cos(a)
-
-// A box, but now with dual numbers
+// Use a box to hold a dual value, not just singular Doubles.
 case class JVP[T](val value: T, val tangent: T)
 
+// Semantics for our dual numbers. This is forward-mode autodiff (Jacobian-Vector Product).
 class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
   def lift(a: T) : JVP[T] = JVP(a,ops.const(0))
   def lower(a: JVP[T]) : T = a.value
@@ -82,10 +82,6 @@ class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
   def neg(a: JVP[T]) : JVP[T] = JVP(- a.value, -a.tangent)
   def sin(a: JVP[T]) : JVP[T] = JVP(ops.sin(a.value), ops.cos(a.value) * a.tangent)
   def cos(a: JVP[T]) : JVP[T] = JVP(ops.cos(a.value),-(ops.sin(a.value)) * a.tangent)
-
-
-def direct[T](f: T => T, arg: T)(using Operations[T]) =
-  f(arg)
 
 // Basically, we need to be able to take in `f` which is a value that takes in any type
 // that has `Operations` and returns _that same type_. Of course we want that type `A`
