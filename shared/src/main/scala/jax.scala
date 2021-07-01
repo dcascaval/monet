@@ -64,7 +64,6 @@ class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
 def direct[T](f: T => T, arg: T)(using Operations[T]) =
   f(arg)
 
-
 // Basically, we need to be able to take in `f` which is a value that takes in any type
 // that has `Operations` and returns _that same type_. Of course we want that type `A`
 // in this case to be `JVP[T]`. We model this by mixing Scala 3's features:
@@ -78,14 +77,16 @@ def jvp[T](f: [A] => (Operations[A]) ?=> A => A, arg: T, tangent: T)(using Opera
 
   f[JVP[T]](inputs)
 
-// So, how do we get such a value? We know that f takes `T`, but really it also takes anything as
-// long as that anything has some operations value associated with it.
-def deriv[T](f: [A] => (Operations[A]) ?=> A => A) : [A] => (Operations[A]) ?=> A => A =
+// Stage a lambda such that this directly performs the derivative computation. The critical
+// thing here is that we _do not know the type `A`_. `f` must be a polymorphic method, since
+// we want to be able to take the derivative both of, say, `Double => Double` and `JVP[Double] => JVP[Double]`.
+// We cannot concretize such a type -- if we did, the type of `f` would be JVP[T] for some concrete `T`,
+// and then the _output_ of the deriv function (if it returned T => T) would _no longer be generic_,
+// since we'd have concretized it to whatever T was at the call site. See `graveyard.scala` for other examples.
+def deriv(f: [A] => (Operations[A]) ?=> A => A) : [A] => (Operations[A]) ?=> A => A =
   [A] => (ops: Operations[A]) ?=>
     (x: A) =>
-      given Operations[A] = ops
-      val r = jvp(f,x,ops.const(1))
-      r.tangent
+      jvp(f,x,ops.const(1)).tangent
 
 // Syntactic sugar
 extension [T](a: T)(using ops: Operations[T])
@@ -95,24 +96,19 @@ extension [T](a: T)(using ops: Operations[T])
 // We have the following function that we want to transform. This
 // function is abstract, independent of any context, and basically
 // outlines what shold happen to whatever tracer value we plug in.
-
 def foo[T : Operations](x:T) =
   val z = x + x
   z
 
-val f = [T] => (ops: Operations[T]) ?=>
-  (x: T) =>
-    foo[T](x)
-
-
 object Main extends App:
+  val f = [T] => (ops: Operations[T]) ?=>
+    (x: T) =>
+      foo[T](x)
 
   val df  = deriv(f)
   println(df(3.0))
   val d2f = deriv(deriv(f))
   println(d2f(3.0))
-
+  // And so on:
   // val d3f : Double => Double = deriv(deriv(deriv(g)))
   // val d4f : Double => Double = deriv(deriv(deriv(deriv(g))))
-
-
