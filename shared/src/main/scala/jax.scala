@@ -21,6 +21,20 @@ trait Operations[T] {
   def cos(a: T): T
 }
 
+// Syntactic sugar
+extension [T](a: T)(using ops: Operations[T])
+  def +(b: T) = ops.add(a, b)
+  def *(b: T) = ops.mul(a, b)
+  def unary_- = ops.neg(a)
+
+def sin[T](a: T)(using ops: Operations[T]) = ops.sin(a)
+def cos[T](a: T)(using ops: Operations[T]) = ops.cos(a)
+
+// Allow infix ops with doubles to automatically perform const-conversion
+extension [T](a: T)(using ops: Operations[T])
+  def +(b: Double) = ops.add(a, ops.const(b))
+  def *(b: Double) = ops.mul(a, ops.const(b))
+
 // Semantics offers an interface that, with access to operations for an underlying type,
 // can provide different ways of interpreting this type in a wrapper. For example, we
 // can wrap with `Diff`, etc. This corresponds to a MainTrace in JAX, and W[_] corresponds
@@ -37,11 +51,11 @@ case class Direct[T](val value: T)
 class DirectSemantics[T](using ops: Operations[T]) extends Semantics[Direct,T]:
   def lift(a: T) : Direct[T] = Direct(a)
   def lower(a: Direct[T]) : T = a.value
-  def add(a: Direct[T], b: Direct[T]) = Direct(ops.add(a.value, b.value))
-  def mul(a: Direct[T], b: Direct[T]) = Direct(ops.add(a.value, b.value))
-  def neg(a: Direct[T]) : Direct[T] = ???
-  def sin(a: Direct[T]) : Direct[T] = ???
-  def cos(a: Direct[T]) : Direct[T] = ???
+  def add(a: Direct[T], b: Direct[T]) = Direct(a.value + b.value)
+  def mul(a: Direct[T], b: Direct[T]) = Direct(a.value * b.value)
+  def neg(a: Direct[T]) : Direct[T] = Direct(ops.neg(a.value))
+  def sin(a: Direct[T]) : Direct[T] = Direct(ops.sin(a.value))
+  def cos(a: Direct[T]) : Direct[T] = Direct(ops.cos(a.value))
 
 given Operations[Double] with
   def const(a: Double) = a
@@ -58,13 +72,16 @@ class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
   def lift(a: T) : JVP[T] = JVP(a,ops.const(0))
   def lower(a: JVP[T]) : T = a.value
   def add(a: JVP[T], b: JVP[T]) =
-    val fwd = ops.add(a.value, b.value)
-    val jvp = ops.add(a.tangent, b.tangent)
+    val fwd = a.value + b.value
+    val jvp = a.tangent + b.tangent
     JVP(fwd, jvp)
-  def mul(a: JVP[T], b: JVP[T]) = ???
-  def neg(a: JVP[T]) :  JVP[T] = ???
-  def sin(a: JVP[T]) :  JVP[T] = ???
-  def cos(a: JVP[T]) :  JVP[T] = ???
+  def mul(a: JVP[T], b: JVP[T]) =
+    val fwd = a.value * b.value
+    val jvp = (a.tangent * b.value) + (a.value * b.tangent)
+    JVP(fwd,jvp)
+  def neg(a: JVP[T]) : JVP[T] = JVP(- a.value, -a.tangent)
+  def sin(a: JVP[T]) : JVP[T] = JVP(ops.sin(a.value), ops.cos(a.value) * a.tangent)
+  def cos(a: JVP[T]) : JVP[T] = JVP(ops.cos(a.value),-(ops.sin(a.value)) * a.tangent)
 
 
 def direct[T](f: T => T, arg: T)(using Operations[T]) =
@@ -94,10 +111,6 @@ def deriv(f: [A] => (Operations[A]) ?=> A => A) : [A] => (Operations[A]) ?=> A =
     (x: A) =>
       jvp(f,x,ops.const(1)).tangent
 
-// Syntactic sugar
-extension [T](a: T)(using ops: Operations[T])
-  def +(b: T) = ops.add(a, b)
-
 
 // We have the following function that we want to transform. This
 // function is abstract, independent of any context, and basically
@@ -106,15 +119,43 @@ def foo[T : Operations](x:T) =
   val z = x + x
   z
 
+// Here's the function from the JAX code:
+def bar[T: Operations](x: T) =
+  val y = sin(x) * 2
+  val z = - y + x
+  z
+
 object Main extends App:
   val f = [T] => (ops: Operations[T]) ?=>
     (x: T) =>
-      foo[T](x)
+      foo[T](x)         // f(x) = 2x
 
   val df  = deriv(f)
-  println(df(3.0))
+  println(df(3.0))      // 2.0 (slope)
   val d2f = deriv(deriv(f))
-  println(d2f(3.0))
-  // And so on:
-  // val d3f : Double => Double = deriv(deriv(deriv(g)))
-  // val d4f : Double => Double = deriv(deriv(deriv(deriv(g))))
+  println(d2f(3.0))     // 0.0 (second derivative is constant)
+  println("\n")
+
+
+  // And look, it works even for their test function!
+  val g = [T] => (ops: Operations[T]) ?=>
+    (x: T) =>
+      bar[T](x)         // f(x) = -2sin(x) + x
+
+  println(deriv(g)(3.0))
+  println(deriv(deriv(g))(3.0))
+  println(deriv(deriv(deriv(g)))(3.0))
+  println(deriv(deriv(deriv(deriv(g))))(3.0))
+
+
+  // Use the same example as in the JAX docs
+  println("\n")
+  println("Checking sin")
+
+  val s = [T] => (ops: Operations[T]) ?=>
+    (x: T) =>
+      sin(x)
+  println(deriv(s)(3.0))
+  println(deriv(deriv(s))(3.0))
+  println(deriv(deriv(deriv(s)))(3.0))
+  println(deriv(deriv(deriv(deriv(s))))(3.0))
