@@ -83,6 +83,7 @@ class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
   def sin(a: JVP[T]) : JVP[T] = JVP(ops.sin(a.value), ops.cos(a.value) * a.tangent)
   def cos(a: JVP[T]) : JVP[T] = JVP(ops.cos(a.value),-(ops.sin(a.value)) * a.tangent)
 
+
 // Basically, we need to be able to take in `f` which is a value that takes in any type
 // that has `Operations` and returns _that same type_. Of course we want that type `A`
 // in this case to be `JVP[T]`. We model this by mixing Scala 3's features:
@@ -111,7 +112,7 @@ def deriv(f: [A] => (Operations[A]) ?=> A => A) : [A] => (Operations[A]) ?=> A =
 // We have the following function that we want to transform. This
 // function is abstract, independent of any context, and basically
 // outlines what shold happen to whatever tracer value we plug in.
-def foo[T : Operations](x:T) =
+def foo[T: Operations](x: T) =
   val z = x + x
   z
 
@@ -122,8 +123,7 @@ def bar[T: Operations](x: T) =
   z
 
 object Main extends App:
-  val f = [T] => (ops: Operations[T]) ?=>
-    (x: T) =>
+  val f = [T] => (ops: Operations[T]) ?=> (x: T) =>
       foo[T](x)         // f(x) = 2x
 
   val df  = deriv(f)
@@ -155,3 +155,85 @@ object Main extends App:
   println(deriv(deriv(s))(3.0))
   println(deriv(deriv(deriv(s)))(3.0))
   println(deriv(deriv(deriv(deriv(s))))(3.0))
+
+
+
+
+
+sealed trait Partial[T]
+class Constant[T](val value: T) extends Partial[T]
+
+sealed trait Abstract[T] extends Partial[T]
+case class AbstractVariable[T]() extends Abstract[T]
+case class AbstractAdd[T](a: Partial[T], b: Partial[T]) extends Abstract[T]
+case class AbstractMul[T](a: Partial[T], b: Partial[T]) extends Abstract[T]
+case class AbstractNeg[T](a: Partial[T]) extends Abstract[T]
+case class AbstractSin[T](a: Partial[T]) extends Abstract[T]
+case class AbstractCos[T](a: Partial[T]) extends Abstract[T]
+
+// Partially evaluate if all of the inputs are known, otherwise build up the computation graph
+class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T]:
+  def match2(a: Partial[T], b: Partial[T], f: (T,T) => T, g: (Partial[T], Partial[T]) => Partial[T]) : Partial[T] = (a,b) match
+      case (ac: Constant[T], bc: Constant[T]) => Constant(f(ac.value, bc.value))
+      case _ => g(a,b)
+  def match1(a: Partial[T], f: T => T, g: Partial[T] => Partial[T]) : Partial[T] = a match
+      case c: Constant[T] => Constant(f(c.value))
+      case _ => g(a)
+
+  def empty() : Partial[T] = AbstractVariable[T]()
+  def lift(a: T) : Partial[T] = Constant(a)
+  def lower(a: Partial[T]) : T = a match
+    case c : Constant[T] => c.value
+    case a : Abstract[T] => throw new Error("Cannot lower abstract value")
+
+  def add(a: Partial[T], b: Partial[T]) = match2(a, b, _+_, AbstractAdd.apply)
+  def mul(a: Partial[T], b: Partial[T]) = match2(a, b, _*_, AbstractMul.apply)
+  def neg(a: Partial[T]) : Partial[T] = match1(a,-_,         AbstractNeg.apply)
+  def sin(a: Partial[T]) : Partial[T] = match1(a,ops.sin(_), AbstractSin.apply)
+  def cos(a: Partial[T]) : Partial[T] = match1(a,ops.cos(_), AbstractCos.apply)
+
+  // This is a bit repetitive with the abstract construction -- should instead when constructing abstract over the arity
+  // and just pass a function T => T instead. We'll wait until `transpose()` is defined to do this though/
+  // ALSO: this does extra work if we don't memoize and `a,b` share subtrees. We should instead serialize.
+  def evaluatePartial(partial: Partial[T])(using context : AbstractVariable[T] => T) : T = partial match
+    case constant : Constant[T] => constant.value
+    case v : AbstractVariable[T] => context(v)
+    case AbstractAdd(a,b) => evaluatePartial(a) + evaluatePartial(b)
+    case AbstractMul(a,b) => evaluatePartial(a) * evaluatePartial(b)
+    case AbstractNeg(a) => -evaluatePartial(a)
+    case AbstractSin(a) => ops.sin(evaluatePartial(a))
+    case AbstractCos(a) => ops.cos(evaluatePartial(a))
+
+  def evaluateTransposed(partial: Partial[T], arg: T, tangent: T) =
+    ???
+    // What we need to do here is:
+    // - Construct maps of primals and cotangent values for each `partial` linear object.
+    //     In the case of VJP, these objects limited to `add`, `mul`, and `neg`,
+    //     since those are the only operations that JVP uses on *tangent* values -- everything
+    //     else actually got partially-evaluated away, since it was only on primals.
+    // - Serialize all of the nodes so that each runs only once. Each node will compute its transpose
+    //     rule, and modify the cotangents by accumulating into them. Each node will run only once
+    //     all of its input cotangents (`d`, in our old system) are accumulated.
+    // I'm not sure if this hits the same problem as we do : the function that is taken `VJP`() of has to
+    //     use any intermediate value it computes in the output in some fashion. I don't think it does,
+    //     because it avoids building the graph directly except in the context of a single derivative; where
+    //     the uses are tracked only relative to a root.
+
+def linearize[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]) : (T, T => T) =
+  // Set up a new context
+  given partial : PartialSemantics[T] = new PartialSemantics[T]
+  given jvp : JVPSemantics[Partial[T]] = new JVPSemantics[Partial[T]]
+
+  // take the JVP of the function, but leave the tangents abstract.
+  val inputs = JVP[Partial[T]](partial.lift(x), partial.empty())
+  val linear = f[JVP[Partial[T]]](inputs)
+
+  val result : T = linear.value match
+    case c: Constant[T] => c.value
+    case _ => throw new Error("Primal value depends on tangent")
+
+  val f_lin = (tangent: T) =>
+    given ctx : (AbstractVariable[T] => T) = _ => tangent // Context has only one variable
+    partial.evaluatePartial(linear.tangent)(using ctx)
+
+  (result, f_lin)
