@@ -310,6 +310,7 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
       transpose(operation)
     read_cotangent(parameter)
 
+
   def evaluatePrint(partial: Partial[T]) : Unit =
     import scala.collection.mutable.Map
     val id = Map[Partial[T], String]()
@@ -369,12 +370,12 @@ def vjp[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]) : T 
   given partial : PartialSemantics[T] = new PartialSemantics[T]
   given jvp : JVPSemantics[Partial[T]] = new JVPSemantics[Partial[T]]
 
-  val parameter = partial.lift(x)
-  val inputs = JVP[Partial[T]](parameter , partial.empty())
+  val tangentParameter = partial.empty()
+  val inputs = JVP[Partial[T]](partial.lift(x), tangentParameter)
   val linear = f[JVP[Partial[T]]](inputs)
 
   (tangent: T) =>
-    partial.evaluateTransposed(parameter, linear.tangent, tangent)
+    partial.evaluateTransposed(tangentParameter, linear.tangent, tangent)
 
 def grad(f: [A] => (Operations[A]) ?=> A => A) =
   [A] => (ops: Operations[A]) ?=> (x: A) =>
