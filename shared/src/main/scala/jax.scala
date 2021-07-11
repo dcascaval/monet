@@ -1,5 +1,8 @@
 package jax
 
+import javax.swing.text.AbstractDocument.Content
+import scala.annotation.meta.param
+
 // This is an attempt to mimic the JAX architecture as described in
 // https://jax.readthedocs.io/en/latest/autodidax.html, the main difference
 // being that we have to figure out what types to give Scala to construct
@@ -37,7 +40,6 @@ extension [T](a: T)(using ops: Operations[T])
   def +(b: Double) = ops.add(a, ops.const(b))
   def *(b: Double) = ops.mul(a, ops.const(b))
 
-
 // We provide a root operations instance that tells us we can work with Doubles.
 // `givens` are the same as the old `implicit val =`
 // https://dotty.epfl.ch/docs/reference/contextual/givens.html
@@ -62,7 +64,6 @@ abstract class Semantics[W[_],T](using _ops: Operations[T]) extends Operations[W
   val ops = _ops
   def const(a: Double) = lift(ops.const(a))
   def lift(a: T): W[T]
-  def lower(a: W[T]): T
 
 // Use a box to hold a dual value, not just singular Doubles.
 case class JVP[T](val value: T, val tangent: T)
@@ -70,7 +71,6 @@ case class JVP[T](val value: T, val tangent: T)
 // Semantics for our dual numbers. This is forward-mode autodiff (Jacobian-Vector Product).
 class JVPSemantics[T](using ops: Operations[T]) extends Semantics[JVP, T]:
   def lift(a: T) : JVP[T] = JVP(a,ops.const(0))
-  def lower(a: JVP[T]) : T = a.value
   def add(a: JVP[T], b: JVP[T]) =
     val fwd = a.value + b.value
     val jvp = a.tangent + b.tangent
@@ -159,17 +159,55 @@ object Main extends App:
 
 
 
+// Partial evaluation. This trait represents a value that could either be:
+// - known (Constant, i.e. evaluated)
+// - unknown (Abstract, i.e. staged).
+sealed trait Partial[T]:
+  def dependencies : Seq[Partial[T]]
 
-sealed trait Partial[T]
-class Constant[T](val value: T) extends Partial[T]
+class Constant[T](val value: T) extends Partial[T]:
+  def dependencies = Seq()
 
+// extract a topological sort
+def dfs[T](op: Partial[T]) : Seq[Partial[T]] =
+  import scala.collection.mutable.ArrayBuffer
+  import scala.collection.mutable.Set
+
+  val order = ArrayBuffer[Partial[T]]()
+  val seen = Set[Partial[T]](op)
+  val temporary = Set[Partial[T]]()
+  val permanent = Set[Partial[T]]()
+
+  def visit(current: Partial[T]) : Unit =
+    if (permanent contains current) return
+    if (temporary contains current) throw new Exception("Cyclic dependency")
+    temporary += (current)
+    for (dep <- current.dependencies)
+      visit(dep)
+    temporary -= (current)
+    permanent += (current)
+    order += current
+
+  for (origin <- seen)
+    visit(origin)
+
+  order.toSeq
+
+// When staging, we keep track of the dependencies to be able to extract an execution order,
+// and the operation type to be able to correctly apply a transpose later.
 sealed trait Abstract[T] extends Partial[T]
-case class AbstractVariable[T]() extends Abstract[T]
-case class AbstractAdd[T](a: Partial[T], b: Partial[T]) extends Abstract[T]
-case class AbstractMul[T](a: Partial[T], b: Partial[T]) extends Abstract[T]
-case class AbstractNeg[T](a: Partial[T]) extends Abstract[T]
-case class AbstractSin[T](a: Partial[T]) extends Abstract[T]
-case class AbstractCos[T](a: Partial[T]) extends Abstract[T]
+case class AbstractVariable[T]() extends Abstract[T]:
+  def dependencies = Seq()
+case class AbstractAdd[T](a: Partial[T], b: Partial[T]) extends Abstract[T]:
+  def dependencies = Seq(a,b)
+case class AbstractMul[T](a: Partial[T], b: Partial[T]) extends Abstract[T]:
+  def dependencies = Seq(a,b)
+case class AbstractNeg[T](a: Partial[T]) extends Abstract[T]:
+  def dependencies = Seq(a)
+case class AbstractSin[T](a: Partial[T]) extends Abstract[T]:
+  def dependencies = Seq(a)
+case class AbstractCos[T](a: Partial[T]) extends Abstract[T]:
+  def dependencies = Seq(a)
 
 // Partially evaluate if all of the inputs are known, otherwise build up the computation graph
 class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T]:
@@ -182,10 +220,6 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
 
   def empty() : Partial[T] = AbstractVariable[T]()
   def lift(a: T) : Partial[T] = Constant(a)
-  def lower(a: Partial[T]) : T = a match
-    case c : Constant[T] => c.value
-    case a : Abstract[T] => throw new Error("Cannot lower abstract value")
-
   def add(a: Partial[T], b: Partial[T]) = match2(a, b, _+_, AbstractAdd.apply)
   def mul(a: Partial[T], b: Partial[T]) = match2(a, b, _*_, AbstractMul.apply)
   def neg(a: Partial[T]) : Partial[T] = match1(a,-_,         AbstractNeg.apply)
@@ -204,20 +238,110 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
     case AbstractSin(a) => ops.sin(evaluatePartial(a))
     case AbstractCos(a) => ops.cos(evaluatePartial(a))
 
-  def evaluateTransposed(partial: Partial[T], arg: T, tangent: T) =
-    ???
-    // What we need to do here is:
-    // - Construct maps of primals and cotangent values for each `partial` linear object.
-    //     In the case of VJP, these objects limited to `add`, `mul`, and `neg`,
-    //     since those are the only operations that JVP uses on *tangent* values -- everything
-    //     else actually got partially-evaluated away, since it was only on primals.
-    // - Serialize all of the nodes so that each runs only once. Each node will compute its transpose
-    //     rule, and modify the cotangents by accumulating into them. Each node will run only once
-    //     all of its input cotangents (`d`, in our old system) are accumulated.
-    // I'm not sure if this hits the same problem as we do : the function that is taken `VJP`() of has to
-    //     use any intermediate value it computes in the output in some fashion. I don't think it does,
-    //     because it avoids building the graph directly except in the context of a single derivative; where
-    //     the uses are tracked only relative to a root.
+  // NB: Right now specialized to functions of one argument and one result.
+  // To expand this to vector-valued fucntions we would just have sequences (and a corresponding
+  // sequence of tangents of equivalent length to result).
+  def evaluateTransposed(parameter: Partial[T], result: Partial[T], tangent: T) : T =
+    // - A map of cotangent values for each `partial` linear object.
+    //   In the case of VJP, these objects limited to `add`, `mul`, and `neg`,
+    //   since those are the only operations that JVP uses on *tangent* values -- everything
+    //   else actually got partially-evaluated away, since it was only on primals.
+    val tangentMap = scala.collection.mutable.Map[Partial[T],T]() // Accumulated delta
+
+    //  Serialize all of the nodes so that each runs only once. Each node will compute its transpose
+    //  rule, and modify the cotangents by accumulating into them. Each node will run only once
+    //  all of its input cotangents (`d`, in our old system) are accumulated. As in our system, this
+    //  can probably be cached.
+    val executionOrder : Seq[Partial[T]] = dfs(result)
+    evaluatePrint(result)
+
+    // Equivalently we can initialize the tangents for all nodes to zero
+    def read_cotangent(p : Partial[T]) : T =
+      tangentMap.remove(p) match
+        case Some(value) => value
+        case None => ops.const(0.0)
+
+    def write_cotangent(p : Partial[T], delta: T) : Unit =
+      tangentMap.get(p) match
+        case Some(accumulated) => tangentMap(p) = accumulated + delta
+        case None => tangentMap(p) = delta
+
+    // Each transpose operates directly on cotangents and abstract values. One
+    // notable difference between this transformation and our previous RAD method
+    // is that the rules are _significantly_ simpler, and much of the computation
+    // has been evaluated away in `linearize`.
+    def transpose(partial: Partial[T]) =
+      partial match
+        // These are no-ops
+        case c : Constant[T] => ()
+        case v : AbstractVariable[T] => ()
+
+        case AbstractAdd(a, b) =>
+          val z_bar = read_cotangent(partial)
+          write_cotangent(a, z_bar)
+          write_cotangent(b, z_bar)
+
+        case AbstractMul(a, b) =>
+          val z_bar = read_cotangent(partial)
+          // (a, b) match
+          //   case (cA, _): (Constant[T], Abstract[T]) =>
+          //     write_cotangent(b, cA.value * z_bar)
+          //   case (_, cB): (Abstract[T], Constant[T]) =>
+          //     write_cotangent(a, z_bar * cB.value)
+          //   case (cA, cB): (Constant[T], Constant[T]) =>
+          //     ??? // Should have been folded in `linearize`
+          //   case (aA, aB): (Abstract[T], Abstract[T]) =>
+          //     throw new Exception("Not a linear function")
+          a match
+            case cA : Constant[T] => write_cotangent(b, cA.value * z_bar)
+            case _ => b match
+              case cB : Constant[T] => write_cotangent(a, z_bar * cB.value)
+              case _ => throw new Exception("non-linear function")
+
+        case AbstractNeg(a) =>
+          val y_bar = read_cotangent(partial)
+          write_cotangent(a, -y_bar)
+
+        case _ =>
+          throw new Exception(s"Operation $partial is nonlinear")
+
+    write_cotangent(result, tangent)
+    for (operation <- executionOrder.reverse)
+      transpose(operation)
+    read_cotangent(parameter)
+
+  def evaluatePrint(partial: Partial[T]) : Unit =
+    import scala.collection.mutable.Map
+    val id = Map[Partial[T], String]()
+    val counter = Map[String, Int]("t"->0, "v"->0)
+    def definePrefix(prefix: String)(p: Partial[T]) : String =
+      var newName = p match
+        case c: Constant[T] => s"${c.value}"
+        case _ =>
+          counter(prefix) += 1
+          s"$prefix${counter(prefix)}"
+      id(p) = newName
+      newName
+    def define(p : Partial[T]) = definePrefix("t")(p)
+    def name(p : Partial[T]) : String =
+      id.get(p) match
+        case Some(s) => s
+        case None => definePrefix("v")(p)
+
+    val order = dfs(partial)
+
+    val exprs = order.map(op => op match
+        case c: Constant[T] => ""
+        case v: AbstractVariable[T] => ""
+        case AbstractAdd(a,b) => s"${define(op)} = ${name(a)} + ${name(b)}"
+        case AbstractMul(a,b) => s"${define(op)} = ${name(a)} * ${name(b)}"
+        case AbstractNeg(a) => s"${define(op)} = -${name(a)}"
+        case AbstractSin(a) => s"${define(op)} = sin(${name(a)})"
+        case AbstractCos(a) => s"${define(op)} = cos(${name(a)})"
+    )
+
+    println(exprs.filter(_.size > 0).mkString("\n"))
+
 
 def linearize[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]) : (T, T => T) =
   // Set up a new context
@@ -230,10 +354,34 @@ def linearize[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]
 
   val result : T = linear.value match
     case c: Constant[T] => c.value
-    case _ => throw new Error("Primal value depends on tangent")
+    case _ => throw new Error("Primal value depends on tangents")
 
   val f_lin = (tangent: T) =>
     given ctx : (AbstractVariable[T] => T) = _ => tangent // Context has only one variable
     partial.evaluatePartial(linear.tangent)(using ctx)
 
   (result, f_lin)
+
+def vjp[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]) : T => T =
+  // Very, very similar to linearize -- all of the setup is the same. The key difference
+  // in the lambda we return: in `linearize`, we evaluate the tangent directly (JVP).
+  // Here, we evaluate the tangent with the custom transpose rules.
+  given partial : PartialSemantics[T] = new PartialSemantics[T]
+  given jvp : JVPSemantics[Partial[T]] = new JVPSemantics[Partial[T]]
+
+  val parameter = partial.lift(x)
+  val inputs = JVP[Partial[T]](parameter , partial.empty())
+  val linear = f[JVP[Partial[T]]](inputs)
+
+  (tangent: T) =>
+    partial.evaluateTransposed(parameter, linear.tangent, tangent)
+
+def grad(f: [A] => (Operations[A]) ?=> A => A) =
+  [A] => (ops: Operations[A]) ?=> (x: A) =>
+    vjp(f, x)(ops.const(1.0))
+
+object TestVJP extends App:
+  val g = [T] => (ops: Operations[T]) ?=>
+    (x: T) =>
+      bar[T](x)         // f(x) = -2sin(x) + x
+  println(grad(g)(3.0))
