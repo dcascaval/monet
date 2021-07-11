@@ -168,31 +168,6 @@ sealed trait Partial[T]:
 class Constant[T](val value: T) extends Partial[T]:
   def dependencies = Seq()
 
-// extract a topological sort
-def dfs[T](op: Partial[T]) : Seq[Partial[T]] =
-  import scala.collection.mutable.ArrayBuffer
-  import scala.collection.mutable.Set
-
-  val order = ArrayBuffer[Partial[T]]()
-  val seen = Set[Partial[T]](op)
-  val temporary = Set[Partial[T]]()
-  val permanent = Set[Partial[T]]()
-
-  def visit(current: Partial[T]) : Unit =
-    if (permanent contains current) return
-    if (temporary contains current) throw new Exception("Cyclic dependency")
-    temporary += (current)
-    for (dep <- current.dependencies)
-      visit(dep)
-    temporary -= (current)
-    permanent += (current)
-    order += current
-
-  for (origin <- seen)
-    visit(origin)
-
-  order.toSeq
-
 // When staging, we keep track of the dependencies to be able to extract an execution order,
 // and the operation type to be able to correctly apply a transpose later.
 sealed trait Abstract[T] extends Partial[T]
@@ -253,7 +228,6 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
     //  all of its input cotangents (`d`, in our old system) are accumulated. As in our system, this
     //  can probably be cached.
     val executionOrder : Seq[Partial[T]] = dfs(result)
-    evaluatePrint(result)
 
     // Equivalently we can initialize the tangents for all nodes to zero
     def read_cotangent(p : Partial[T]) : T =
@@ -283,20 +257,11 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
 
         case AbstractMul(a, b) =>
           val z_bar = read_cotangent(partial)
-          // (a, b) match
-          //   case (cA, _): (Constant[T], Abstract[T]) =>
-          //     write_cotangent(b, cA.value * z_bar)
-          //   case (_, cB): (Abstract[T], Constant[T]) =>
-          //     write_cotangent(a, z_bar * cB.value)
-          //   case (cA, cB): (Constant[T], Constant[T]) =>
-          //     ??? // Should have been folded in `linearize`
-          //   case (aA, aB): (Abstract[T], Abstract[T]) =>
-          //     throw new Exception("Not a linear function")
           a match
             case cA : Constant[T] => write_cotangent(b, cA.value * z_bar)
             case _ => b match
               case cB : Constant[T] => write_cotangent(a, z_bar * cB.value)
-              case _ => throw new Exception("non-linear function")
+              case _ => throw new Exception("non-linear function") // Can't have both be abstract.
 
         case AbstractNeg(a) =>
           val y_bar = read_cotangent(partial)
@@ -309,40 +274,6 @@ class PartialSemantics[T](using ops: Operations[T]) extends Semantics[Partial, T
     for (operation <- executionOrder.reverse)
       transpose(operation)
     read_cotangent(parameter)
-
-
-  def evaluatePrint(partial: Partial[T]) : Unit =
-    import scala.collection.mutable.Map
-    val id = Map[Partial[T], String]()
-    val counter = Map[String, Int]("t"->0, "v"->0)
-    def definePrefix(prefix: String)(p: Partial[T]) : String =
-      var newName = p match
-        case c: Constant[T] => s"${c.value}"
-        case _ =>
-          counter(prefix) += 1
-          s"$prefix${counter(prefix)}"
-      id(p) = newName
-      newName
-    def define(p : Partial[T]) = definePrefix("t")(p)
-    def name(p : Partial[T]) : String =
-      id.get(p) match
-        case Some(s) => s
-        case None => definePrefix("v")(p)
-
-    val order = dfs(partial)
-
-    val exprs = order.map(op => op match
-        case c: Constant[T] => ""
-        case v: AbstractVariable[T] => ""
-        case AbstractAdd(a,b) => s"${define(op)} = ${name(a)} + ${name(b)}"
-        case AbstractMul(a,b) => s"${define(op)} = ${name(a)} * ${name(b)}"
-        case AbstractNeg(a) => s"${define(op)} = -${name(a)}"
-        case AbstractSin(a) => s"${define(op)} = sin(${name(a)})"
-        case AbstractCos(a) => s"${define(op)} = cos(${name(a)})"
-    )
-
-    println(exprs.filter(_.size > 0).mkString("\n"))
-
 
 def linearize[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]) : (T, T => T) =
   // Set up a new context
@@ -382,7 +313,79 @@ def grad(f: [A] => (Operations[A]) ?=> A => A) =
     vjp(f, x)(ops.const(1.0))
 
 object TestVJP extends App:
-  val g = [T] => (ops: Operations[T]) ?=>
+  val f = [T] => (ops: Operations[T]) ?=>
     (x: T) =>
       bar[T](x)         // f(x) = -2sin(x) + x
-  println(grad(g)(3.0))
+  println(grad(f)(3.0))
+
+  val hess1 = grad(grad(f))(3.0)
+  val hess2 = jvp(grad(f), 3.0, 1.0).tangent
+  println(hess1)
+  println(hess2)
+
+
+
+
+
+
+
+//
+//--------------------- HELPER FUNCTIONS ---------------------
+//
+
+// extract a topological sort
+def dfs[T](op: Partial[T]) : Seq[Partial[T]] =
+  import scala.collection.mutable.ArrayBuffer
+  import scala.collection.mutable.Set
+
+  val order = ArrayBuffer[Partial[T]]()
+  val seen = Set[Partial[T]](op)
+  val temporary = Set[Partial[T]]()
+  val permanent = Set[Partial[T]]()
+
+  def visit(current: Partial[T]) : Unit =
+    if (permanent contains current) return
+    if (temporary contains current) throw new Exception("Cyclic dependency")
+    temporary += (current)
+    for (dep <- current.dependencies)
+      visit(dep)
+    temporary -= (current)
+    permanent += (current)
+    order += current
+
+  for (origin <- seen)
+    visit(origin)
+
+  order.toSeq
+
+def printAbstractProgram[T](partial: Partial[T]) : Unit =
+  import scala.collection.mutable.Map
+  val id = Map[Partial[T], String]()
+  val counter = Map[String, Int]("t"->0, "v"->0)
+  def definePrefix(prefix: String)(p: Partial[T]) : String =
+    var newName = p match
+      case c: Constant[T] => s"${c.value}"
+      case _ =>
+        counter(prefix) += 1
+        s"$prefix${counter(prefix)}"
+    id(p) = newName
+    newName
+  def define(p : Partial[T]) = definePrefix("t")(p)
+  def name(p : Partial[T]) : String =
+    id.get(p) match
+      case Some(s) => s
+      case None => definePrefix("v")(p)
+
+  val order = dfs(partial)
+
+  val exprs = order.map(op => op match
+      case c: Constant[T] => ""
+      case v: AbstractVariable[T] => ""
+      case AbstractAdd(a,b) => s"${define(op)} = ${name(a)} + ${name(b)}"
+      case AbstractMul(a,b) => s"${define(op)} = ${name(a)} * ${name(b)}"
+      case AbstractNeg(a) => s"${define(op)} = -${name(a)}"
+      case AbstractSin(a) => s"${define(op)} = sin(${name(a)})"
+      case AbstractCos(a) => s"${define(op)} = cos(${name(a)})"
+  )
+
+  println(exprs.filter(_.size > 0).mkString("\n"))
