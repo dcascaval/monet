@@ -1,8 +1,5 @@
 package jax
 
-import javax.swing.text.AbstractDocument.Content
-import scala.annotation.meta.param
-
 // This is an attempt to mimic the JAX architecture as described in
 // https://jax.readthedocs.io/en/latest/autodidax.html, the main difference
 // being that we have to figure out what types to give Scala to construct
@@ -111,33 +108,6 @@ def bar[T: Operations](x: T) =
   val y = sin(x) * 2
   val z = -y + x
   z
-
-object Main extends App:
-  val f = [T] => (ops: Operations[T]) ?=> (x: T) => foo[T](x) // f(x) = 2x
-
-  val df = deriv(f)
-  println(df(3.0)) // 2.0 (slope)
-  val d2f = deriv(deriv(f))
-  println(d2f(3.0)) // 0.0 (second derivative is constant)
-  println("\n")
-
-  // And look, it works even for their test function!
-  val g = [T] => (ops: Operations[T]) ?=> (x: T) => bar[T](x) // f(x) = -2sin(x) + x
-
-  println(deriv(g)(3.0))
-  println(deriv(deriv(g))(3.0))
-  println(deriv(deriv(deriv(g)))(3.0))
-  println(deriv(deriv(deriv(deriv(g))))(3.0))
-
-  // Use the same example as in the JAX docs
-  println("\n")
-  println("Checking sin")
-
-  val s = [T] => (ops: Operations[T]) ?=> (x: T) => sin(x)
-  println(deriv(s)(3.0))
-  println(deriv(deriv(s))(3.0))
-  println(deriv(deriv(deriv(s)))(3.0))
-  println(deriv(deriv(deriv(deriv(s))))(3.0))
 
 // Partial evaluation. This trait represents a value that could either be:
 // - known (Constant, i.e. evaluated)
@@ -297,16 +267,6 @@ def vjp[T](f: [A] => (Operations[A]) ?=> A => A, x: T)(using Operations[T]): T =
 
 def grad(f: [A] => (Operations[A]) ?=> A => A) =
   [A] => (ops: Operations[A]) ?=> (x: A) => vjp(f, x)(ops.const(1.0))
-
-object TestVJP extends App:
-  val f = [T] => (ops: Operations[T]) ?=> (x: T) => bar[T](x) // f(x) = -2sin(x) + x
-  println(grad(f)(3.0))
-
-  PRINT = false
-  val hess1 = grad(grad(f))(3.0)
-  val hess2 = jvp(grad(f), 3.0, 1.0).tangent
-  println(hess1)
-  println(hess2)
 
 //
 //--------------------- HELPER FUNCTIONS ---------------------

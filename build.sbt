@@ -25,6 +25,7 @@ lazy val monet = crossProject(JSPlatform, JVMPlatform)
   .jsSettings(
     // Add JS-specific settings here
     scalaJSUseMainModuleInitializer := true,
+    mainClass := Some(Main),
     libraryDependencies += ("org.scala-js" %%% "scalajs-dom" % "1.1.0").cross(
       CrossVersion.for3Use2_13
     ),
